@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -232,15 +233,38 @@ class RequestEditor(QWidget):
         VarTooltip(self.body, lambda: self._variables)
         layout.addWidget(self.body, 1)
 
+        # Com o corpo escondido, sobrava um vazio sem dono e o QVBoxLayout repartia
+        # ele entre os itens, o que empurrava a fila de modos pro meio da tela.
+        self.sem_corpo = QLabel("este request nao envia corpo")
+        self.sem_corpo.setObjectName("hint")
+        self.sem_corpo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.sem_corpo, 1)
+
         self._apply_mode()
         return wrap
 
     def _build_auth(self) -> QWidget:
+        """A aba de auth mora numa area rolavel de proposito.
+
+        QTabWidget pede a altura minima da MAIOR pagina, e nao da pagina aberta. A auth
+        tem formulario comprido, entao ela sozinha exigia 333 pixels e o editor inteiro
+        virava um bloco de 466: o divisor entre o request e a resposta ja nascia no fim
+        do curso e nao andava um pixel.
+        """
         from .auth_editor import AuthEditor
 
         self.auth = AuthEditor(self.request, mostrar_heranca=True)
         self.auth.changed.connect(self._bubble)
-        return self.auth
+
+        rolagem = QScrollArea()
+        rolagem.setWidgetResizable(True)
+        rolagem.setFrameShape(QFrame.Shape.NoFrame)
+        rolagem.setWidget(self.auth)
+        # a area rolavel repassa a largura minima de quem esta dentro, e o formulario da
+        # auth e largo: sem esse teto ela sozinha exigia mil e cem pixels e voltava a
+        # espremer a arvore
+        rolagem.setMinimumSize(320, 120)
+        return rolagem
 
     def _build_docs(self) -> QWidget:
         self.docs = QPlainTextEdit(self.request.get("docs") or "")
@@ -364,6 +388,7 @@ class RequestEditor(QWidget):
     def _apply_mode(self) -> None:
         mode = self.request["body"].get("mode", "none")
         self.body.setVisible(mode != "none")
+        self.sem_corpo.setVisible(mode == "none")
         self.prettify.setVisible(mode == "json")
         self.tamanho.setVisible(mode != "none")
         self.body_hl.set_language(BODY_LANGUAGE.get(mode, "none"))
