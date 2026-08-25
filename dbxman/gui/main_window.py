@@ -221,6 +221,7 @@ class MainWindow(QMainWindow):
         self.peek.abrir_variaveis.connect(self.open_variables)
         self.peek.valor_alterado.connect(self._peek_valor)
         self.peek.nova_variavel.connect(self._peek_nova)
+        self.peek.segredo_alterado.connect(self._peek_segredo)
 
     def _build_central(self) -> None:
         self.tree_panel = TreePanel()
@@ -680,6 +681,47 @@ class MainWindow(QMainWindow):
         self.mark_dirty()
         onde = f"{scopes.SCOPE_LABEL.get(info.scope, info.scope)} {info.origin}".strip()
         self.statusBar().showMessage(f"{nome} salvo em {onde}", 4000)
+
+    def _peek_segredo(self, nome: str, secreta: bool) -> None:
+        """Marca ou desmarca a variavel como secreta, no escopo de onde ela veio.
+
+        Desmarcar traz o valor de volta pro arquivo versionado, entao vale um aviso: o
+        que estava so no cofre passa a poder aparecer no git.
+        """
+        info = self.variables_for(self.current_node()).get(nome)
+        if info is None:
+            return
+        if info.scope == "execucao":
+            self.statusBar().showMessage(
+                "variavel de execucao nao vai pro cofre, ela morre ao fechar", 5000
+            )
+            return
+        lista = self._lista_do_escopo(info)
+        if lista is None:
+            self.statusBar().showMessage(f"nao achei onde {nome} esta definida", 5000)
+            return
+        for item in lista:
+            if (item.get("key") or "").strip() == nome:
+                item["secret"] = secreta
+                break
+        else:
+            return
+
+        for editor in self.env_editors.values():
+            editor.tabela.reload()
+            editor.atualizar()
+        self.env_panel.refresh()
+        self._reload_envs()
+        self.mark_dirty()
+        self._espiar_variaveis()
+        self.peek.focar(nome)
+        onde = f"{scopes.SCOPE_LABEL.get(info.scope, info.scope)} {info.origin}".strip()
+        if secreta:
+            self.statusBar().showMessage(f"{nome} agora e secreta em {onde}", 4000)
+        else:
+            self.statusBar().showMessage(
+                f"{nome} deixou de ser secreta em {onde}, o valor volta pro arquivo", 6000
+            )
 
     def _peek_nova(self) -> None:
         self.peek.hide()

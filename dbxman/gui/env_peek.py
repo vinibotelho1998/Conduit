@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QHeaderView,
+    QMenu,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -74,6 +75,7 @@ class EnvPeek(QFrame):
     abrir_variaveis = Signal()
     valor_alterado = Signal(str, str)   # nome, valor novo
     nova_variavel = Signal()
+    segredo_alterado = Signal(str, bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -132,10 +134,14 @@ class EnvPeek(QFrame):
         self.tabela.setColumnWidth(3, 165)
         self.tabela.setMinimumHeight(220)
         self.tabela.setItemDelegateForColumn(1, ValorDelegate(self._editou, self.tabela))
+        self.tabela.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tabela.customContextMenuRequested.connect(self._menu)
         dentro.addWidget(self.tabela, 1)
 
         rodape = QHBoxLayout()
-        self.aviso = QLabel("Clique duas vezes no valor pra editar aqui mesmo")
+        self.aviso = QLabel(
+            "Clique duas vezes no valor pra editar.  Botao direito marca como secreta."
+        )
         self.aviso.setObjectName("hint")
         rodape.addWidget(self.aviso, 1)
 
@@ -202,6 +208,29 @@ class EnvPeek(QFrame):
         self.resumo.setText("   ·   ".join(partes))
         self.btn_editar.setEnabled(bool(nome_ambiente))
         self._carregando = False
+
+    def _menu(self, ponto) -> None:
+        """Botao direito na linha: marcar ou desmarcar como secreta."""
+        item = self.tabela.itemAt(ponto)
+        if item is None:
+            return
+        linha = item.row()
+        valor = self.tabela.item(linha, 1)
+        nome_item = self.tabela.item(linha, 0)
+        if valor is None or nome_item is None:
+            return
+        nome = nome_item.text()
+        secreta = bool(valor.data(PAPEL_SECRETO))
+
+        menu = QMenu(self)
+        if secreta:
+            acao = menu.addAction("Deixar de ser secreta")
+        else:
+            acao = menu.addAction("Marcar como secreta")
+        acao.setToolTip("valor secreto fica no cofre e nunca sai em log, historico ou git")
+        escolhida = menu.exec(self.tabela.viewport().mapToGlobal(ponto))
+        if escolhida is acao:
+            self.segredo_alterado.emit(nome, not secreta)
 
     def _olho(self, linha: int, nome: str) -> QToolButton:
         botao = QToolButton()
