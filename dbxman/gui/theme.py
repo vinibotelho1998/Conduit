@@ -56,16 +56,16 @@ QWidget {{
 QMainWindow::separator {{ background: {BORDER}; width: 1px; height: 1px; }}
 
 QMenuBar {{ background: {PANEL}; border-bottom: 1px solid {BORDER}; padding: 2px; }}
-QMenuBar::item {{ padding: 5px 12px; background: transparent; border-radius: 7px; }}
+QMenuBar::item {{ padding: 5px 12px; background: transparent; border-radius: 9px; }}
 QMenuBar::item:selected {{ background: {RAISE}; }}
-QMenu {{ background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 10px; padding: 6px; }}
-QMenu::item {{ padding: 7px 28px 7px 22px; border-radius: 7px; }}
+QMenu {{ background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 13px; padding: 7px; }}
+QMenu::item {{ padding: 7px 28px 7px 22px; border-radius: 9px; }}
 QMenu::item:selected {{ background: {RAISE}; }}
 QMenu::separator {{ height: 1px; background: {BORDER}; margin: 5px 6px; }}
 
 QToolBar {{ background: {PANEL}; border-bottom: 1px solid {BORDER}; padding: 4px 8px; spacing: 8px; }}
 QToolBar QToolButton {{
-    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 6px;
+    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 10px;
     padding: 5px 10px; color: {TEXT};
 }}
 QToolBar QToolButton:hover {{ border-color: {ACCENT}; }}
@@ -75,24 +75,25 @@ QStatusBar {{ background: {PANEL}; border-top: 1px solid {BORDER}; color: {FAINT
 QStatusBar::item {{ border: 0; }}
 
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox {{
-    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 9px;
+    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 11px;
     padding: 7px 11px; selection-background-color: #2f6fb5;
 }}
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {{ border-color: {ACCENT}; }}
 QComboBox::drop-down {{ border: 0; width: 18px; }}
 QComboBox::down-arrow {{ image: url(__CHEVRON__); width: 12px; height: 12px; margin-right: 6px; }}
 QComboBox QAbstractItemView {{
-    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 9px;
-    selection-background-color: {RAISE}; outline: 0; padding: 5px;
+    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 12px;
+    selection-background-color: {RAISE}; outline: 0; padding: 6px;
 }}
 
 QPushButton {{
-    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 9px; padding: 8px 17px;
+    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 11px; padding: 8px 17px;
 }}
 QPushButton:hover {{ border-color: {ACCENT}; }}
 QPushButton:disabled {{ color: {FAINT}; }}
 QPushButton#send {{
-    background: {ACCENT}; color: #0d1017; border: 0; font-weight: 700; padding: 6px 24px;
+    background: {ACCENT}; color: #0d1017; border: 0; border-radius: 11px;
+    font-weight: 700; padding: 6px 24px;
 }}
 QPushButton#send:hover {{ background: #66b0ff; }}
 QPushButton#send:disabled {{ background: #2f4a68; color: #7d8794; }}
@@ -196,8 +197,8 @@ QPushButton#salvar:disabled {{ background: transparent; border-color: {BORDER}; 
 
 QLabel#hint {{ color: {FAINT}; }}
 QLabel#sectionTitle {{ color: {FAINT}; font-size: 8.5pt; letter-spacing: 1px; }}
-QFrame#card {{ background: {PANEL}; border: 1px dashed {BORDER}; border-radius: 12px; }}
-QToolTip {{ background: {PANEL2}; color: {TEXT}; border: 1px solid {BORDER}; border-radius: 7px; padding: 6px 8px; }}
+QFrame#card {{ background: {PANEL}; border: 1px dashed {BORDER}; border-radius: 15px; }}
+QToolTip {{ background: {PANEL2}; color: {TEXT}; border: 1px solid {BORDER}; border-radius: 10px; padding: 6px 9px; }}
 """
 
 

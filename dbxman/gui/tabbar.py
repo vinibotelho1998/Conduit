@@ -11,13 +11,15 @@ entra, entao um so canto serve pras duas coisas e a aba nao fica mais larga por 
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QMenu, QTabBar, QTabWidget
 
 from . import theme
 from .tree_delegate import _fonte_pilula, pintar_pilula
 
 ALTURA = 39
+# canto de cima da aba, no mesmo acabamento dos campos e botoes
+RAIO = 10.0
 MARGEM = 12
 GAP = 7
 ZONA_X = 17.0
@@ -111,13 +113,30 @@ class AbaBar(QTabBar):
         sob = index == self._sob
         _, metodo, sujo = self._info(index)
 
+        # A aba encosta na resposta por baixo, entao so o topo arredonda: pastilha
+        # com quatro cantos redondos flutua solta em cima do conteudo.
+        fundo = None
         if selecionada:
-            painter.fillRect(r, QColor(theme.PANEL2))
+            fundo = QColor(theme.PANEL2)
         elif sob:
-            painter.fillRect(r, QColor(theme.PANEL))
+            fundo = QColor(theme.PANEL)
+        if fundo is not None:
+            caminho = QPainterPath()
+            caminho.addRoundedRect(
+                QRectF(r.left(), r.top(), r.width(), r.height() + RAIO), RAIO, RAIO
+            )
+            painter.save()
+            painter.setClipRect(r)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(fundo)
+            painter.drawPath(caminho)
+            painter.restore()
 
-        painter.setPen(QPen(QColor(theme.BORDER), 1))
-        painter.drawLine(r.topRight(), r.bottomRight())
+        if not selecionada:
+            painter.setPen(QPen(QColor(theme.BORDER), 1))
+            painter.drawLine(
+                QPointF(r.right(), r.top() + 8), QPointF(r.right(), r.bottom() - 8)
+            )
 
         if selecionada:
             painter.fillRect(QRectF(r.left(), r.bottom() - 2, r.width(), 2), QColor(theme.ACCENT))
@@ -162,7 +181,7 @@ class AbaBar(QTabBar):
         if aceso:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(theme.RAISE))
-            painter.drawRoundedRect(caixa, 4, 4)
+            painter.drawRoundedRect(caixa, 7, 7)
         if aceso:
             cor = QColor(theme.TEXT)
         elif sujo:

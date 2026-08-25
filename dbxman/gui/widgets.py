@@ -95,7 +95,7 @@ class BadgeTabBar(QTabBar):
             fundo.setAlpha(45)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(fundo)
-            painter.drawRoundedRect(pilula, 7, 7)
+            painter.drawRoundedRect(pilula, 8, 8)
             painter.setPen(cor_qt)
             painter.drawText(pilula, Qt.AlignmentFlag.AlignCenter, texto)
         painter.end()

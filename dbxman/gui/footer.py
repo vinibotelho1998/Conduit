@@ -26,7 +26,7 @@ def botao(texto: str, dica: str, acao) -> QToolButton:
     alvo.setCursor(Qt.CursorShape.PointingHandCursor)
     alvo.setStyleSheet(
         f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
-        f" padding: 3px 10px; border-radius: 7px; }}"
+        f" padding: 3px 10px; border-radius: 9px; }}"
         f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}"
         f"QToolButton:checked {{ color: {theme.ACCENT}; }}"
     )

@@ -50,7 +50,7 @@ def pintar_pilula(painter: QPainter, x: float, centro_y: float, texto: str, cor:
     caneta.setWidthF(0.9)
     painter.setPen(caneta)
     painter.setBrush(fundo)
-    painter.drawRoundedRect(caixa, 4.5, 4.5)
+    painter.drawRoundedRect(caixa, 5.5, 5.5)
 
     painter.setPen(QPen(qcor))
     painter.drawText(caixa, Qt.AlignmentFlag.AlignCenter, texto)
