@@ -106,20 +106,34 @@ QTreeWidget, QTableWidget, QListWidget {{
 QTreeWidget::item {{ height: 30px; border-radius: 7px; }}
 QTreeWidget::item:hover {{ background: {PANEL2}; }}
 QTreeWidget::item:selected {{ background: {RAISE}; color: {TEXT}; }}
+/* A arvore de collections pinta a linha inteira por conta propria. Deixando o estilo
+   pintar tambem, a coluna do recuo virava um bloco arredondado solto na esquerda e o
+   nome ficava num retangulo separado, com costura no meio. */
+QTreeWidget#arvore::item {{ background: transparent; }}
+QTreeWidget#arvore::item:hover {{ background: transparent; }}
+QTreeWidget#arvore::item:selected {{ background: transparent; color: {TEXT}; }}
+QTreeWidget#arvore::branch {{ background: transparent; }}
+QTreeWidget#arvore::branch:hover {{ background: transparent; }}
+QTreeWidget#arvore::branch:selected {{ background: transparent; }}
 
 QHeaderView::section {{
     background: {BG}; color: {FAINT}; border: 0; border-bottom: 1px solid {BORDER};
     padding: 7px 10px; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px;
 }}
 QTableWidget {{ background: {BG}; gridline-color: {PANEL2}; }}
+/* caixa de marcar e botao de apagar moram dentro da celula. Sem fundo transparente
+   eles pintam o proprio retangulo por cima da marca da linha escolhida. */
+QTableWidget QCheckBox, QTableWidget QAbstractButton {{ background: transparent; }}
 QTableWidget::item {{ padding: 3px 8px; }}
 /* O campo que nasce ao editar uma celula e um QLineEdit comum, entao herdava o respiro
    dos campos grandes: 7px em cima e embaixo dentro de uma linha de 28 nao cabe, e o
    texto saia esmagado. Dentro de grade ele fica rente. */
 QAbstractItemView QLineEdit, QAbstractItemView QPlainTextEdit {{
-    padding: 0 7px; border-radius: 6px; border: 1px solid {ACCENT}; background: {BG};
+    padding: 0 7px; border-radius: 8px; border: 1px solid {ACCENT}; background: {BG};
 }}
-QTableWidget::item:selected {{ background: {RAISE}; color: {TEXT}; }}
+/* Sem raio aqui de proposito: a marca cobre a linha inteira, e canto redondo por
+   celula abre um entalhe entre uma celula e a outra. */
+QTableWidget::item:selected {{ background: {SEL}; color: {TEXT}; }}
 
 QTabWidget::pane {{ border: 0; border-top: 1px solid {BORDER}; }}
 QTabBar {{ qproperty-drawBase: 0; }}

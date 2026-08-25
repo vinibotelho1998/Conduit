@@ -184,6 +184,31 @@ def cor_do_status(status, ok: bool = True) -> str:
     return theme.ERR
 
 
+def cor_da_linha(selecionado: bool, sob_mouse: bool) -> QColor | None:
+    if selecionado:
+        return QColor(theme.RAISE)
+    if sob_mouse:
+        return QColor(theme.PANEL2)
+    return None
+
+
+def pintar_fundo(painter: QPainter, recorte, esquerda: float, direita: float,
+                 topo: float, altura: float, cor: QColor) -> None:
+    """Pinta a faixa da linha inteira e corta no pedaco que cabe a quem chamou.
+
+    Quem chama e a propria arvore, em drawRow, uma vez por linha. Ja foi desenhada em dois
+    pedacos, a coluna do recuo de um lado e o resto do outro, e a borda suavizada de cada
+    metade deixava um risco no ponto em que os dois recortes se encostavam.
+    """
+    painter.save()
+    painter.setClipRect(recorte)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(cor)
+    painter.drawRoundedRect(QRectF(esquerda, topo, max(0.0, direita - esquerda), altura), 8.0, 8.0)
+    painter.restore()
+
+
 class TreeDelegate(QStyledItemDelegate):
     """Pinta a linha inteira: pilula ou icone colado na seta, nome e contagem."""
 
@@ -210,10 +235,9 @@ class TreeDelegate(QStyledItemDelegate):
         selecionado = bool(option.state & QStyle.StateFlag.State_Selected)
         sob_mouse = bool(option.state & QStyle.StateFlag.State_MouseOver)
 
-        if selecionado:
-            painter.fillRect(area.adjusted(0, 1, -6, -1), QColor(theme.RAISE))
-        elif sob_mouse:
-            painter.fillRect(area.adjusted(0, 1, -6, -1), QColor(theme.PANEL2))
+        # o fundo da linha nao e desenhado aqui: quem pinta e a arvore, em drawRow,
+        # pra faixa sair de um pincel so e nao ter costura no meio
+        _ = (selecionado, sob_mouse)
 
         centro_y = area.center().y() + 0.5
         x = area.left() + 2.0

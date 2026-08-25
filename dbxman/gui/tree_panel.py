@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import QModelIndex, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QCursor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -19,7 +19,14 @@ from PySide6.QtWidgets import (
 from . import theme
 from . import icons
 from .icons import collection_icon, folder_icon, method_icon
-from .tree_delegate import ALTURA_LINHA, RECUO, TreeDelegate, pintar_chevron
+from .tree_delegate import (
+    ALTURA_LINHA,
+    RECUO,
+    TreeDelegate,
+    cor_da_linha,
+    pintar_chevron,
+    pintar_fundo,
+)
 
 ROLE_ID = Qt.ItemDataRole.UserRole
 ROLE_NODE = Qt.ItemDataRole.UserRole + 1
@@ -85,6 +92,38 @@ class DropTree(QTreeWidget):
         super().dropEvent(event)
         self.painel.rebuild_from_widget()
 
+    def paintEvent(self, evento):  # noqa: N802
+        """Descobre a linha sob o ponteiro uma vez por pintura.
+
+        A faixa e desenhada linha a linha, e perguntar a posicao do mouse dentro de cada
+        uma virava uma chamada ao sistema por linha visivel a cada repintura.
+        """
+        ponteiro = self.viewport().mapFromGlobal(QCursor.pos())
+        self._sob_ponteiro = (
+            self.indexAt(ponteiro)
+            if self.viewport().rect().contains(ponteiro)
+            else QModelIndex()
+        )
+        super().paintEvent(evento)
+
+    def drawRow(self, painter, opcoes, index):  # noqa: N802
+        """Pinta a faixa da linha antes de qualquer outra coisa.
+
+        Antes a faixa saia de dois pinceis, um pra coluna do recuo e outro pro resto, e
+        cada um recortava o proprio pedaco. Encostando os dois recortes, a borda suavizada
+        de cada metade deixava um risco no meio da linha escolhida. Pintando de uma vez
+        so, a faixa e uma peca inteira.
+        """
+        cor = cor_da_linha(
+            self.selectionModel().isSelected(index),
+            getattr(self, "_sob_ponteiro", QModelIndex()) == index,
+        )
+        if cor is not None:
+            area = opcoes.rect
+            pintar_fundo(painter, area, 2.0, self.viewport().width() - 6.0,
+                         area.top() + 1.0, area.height() - 2.0, cor)
+        super().drawRow(painter, opcoes, index)
+
     def drawBranches(self, painter, rect, index):  # noqa: N802
         """Guia vertical por nivel mais a seta do proprio item.
 
@@ -104,7 +143,11 @@ class DropTree(QTreeWidget):
         caneta = QPen(QColor(theme.BORDER))
         caneta.setWidthF(1.0)
         painter.setPen(caneta)
-        for degrau in range(nivel):
+        # na linha em foco a guia nao aparece: o risco cortaria a faixa no meio
+        em_foco = self.selectionModel().isSelected(index) or (
+            getattr(self, "_sob_ponteiro", QModelIndex()) == index
+        )
+        for degrau in range(0 if em_foco else nivel):
             x = rect.left() + degrau * passo + passo / 2 + 1
             painter.drawLine(QRectF(x, rect.top(), 0, rect.height()).topLeft(),
                              QRectF(x, rect.top(), 0, rect.height()).bottomLeft())
@@ -180,6 +223,19 @@ class TreePanel(QWidget):
         root.addWidget(head)
 
         self.tree = DropTree(self)
+        self.tree.setObjectName("arvore")
+        # O Qt considera que a marca de escolhido cobre tambem a coluna do recuo, e pinta
+        # essa faixa com o azul de realce do sistema direto, sem passar pela folha de
+        # estilo: por isso sobrava um retangulo aceso na esquerda da linha, colado na
+        # faixa que a gente desenha. Sem cor de realce, so fica o nosso desenho.
+        palete = self.tree.palette()
+        palete.setBrush(QPalette.ColorRole.Highlight, QBrush(Qt.GlobalColor.transparent))
+        palete.setBrush(
+            QPalette.ColorGroup.Inactive,
+            QPalette.ColorRole.Highlight,
+            QBrush(Qt.GlobalColor.transparent),
+        )
+        self.tree.setPalette(palete)
         self.tree.setHeaderHidden(True)
         self.tree.setIndentation(RECUO)
         self.tree.setAnimated(True)
