@@ -367,3 +367,30 @@ def icone_quebra(cor: str = theme.DIM) -> QIcon:
     painter.drawPath(seta)
     painter.end()
     return _guardar(chave, pix)
+
+
+def icone_lupa(cor: str = theme.DIM) -> QIcon:
+    """Lupa: abre a busca dentro do corpo da resposta."""
+    chave = f"lupa:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor)
+    painter.drawEllipse(QRectF(3.2, 3.2, 9.2, 9.2))
+    painter.drawLine(QPointF(11.6, 11.6), QPointF(15.0, 15.0))
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_fechar(cor: str = theme.FAINT, lado: int = 14) -> QIcon:
+    """X de apagar linha. O caractere multiplicacao mudava de desenho com a fonte."""
+    chave = f"fechar:{cor}:{lado}"
+    if chave in _cache:
+        return _cache[chave]
+    pix, painter = _tela(lado, lado)
+    _caneta(painter, cor, 1.5)
+    recuo = lado * 0.29
+    painter.drawLine(QPointF(recuo, recuo), QPointF(lado - recuo, lado - recuo))
+    painter.drawLine(QPointF(lado - recuo, recuo), QPointF(recuo, lado - recuo))
+    painter.end()
+    return _guardar(chave, pix)

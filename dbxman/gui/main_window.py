@@ -144,6 +144,9 @@ class MainWindow(QMainWindow):
         self.editors: dict[str, RequestEditor] = {}
         self.env_editors: dict[str, EnvEditor] = {}
         self.pending: set[str] = set()
+        # url de cada envio em curso, pra faixa continuar mostrando o alvo quando
+        # a aba sai e volta no meio da espera
+        self.enviando_para: dict[str, str] = {}
         self.history: History | None = None
         self._tasks: set = set()
         self._assinatura: dict = {}
@@ -1274,7 +1277,7 @@ class MainWindow(QMainWindow):
             return
         node_id = next((k for k, v in self.editors.items() if v is atual), None)
         if node_id in self.pending:
-            self.response.show_pending()
+            self.response.show_pending(self.enviando_para.get(node_id, ''))
             return
         guardado = self.respostas.get(node_id)
         if guardado is None:
@@ -1480,7 +1483,8 @@ class MainWindow(QMainWindow):
         editor = self.editors.get(node_id)
         if editor:
             editor.set_sending(True)
-        self.response.show_pending()
+        self.enviando_para[node_id] = prepared.url
+        self.response.show_pending(prepared.url)
         self.registrar(f"{prepared.method} {prepared.url}", "envio", 0)
         self.statusBar().showMessage(f"enviando {prepared.method} {prepared.url}")
 
@@ -1509,6 +1513,7 @@ class MainWindow(QMainWindow):
     def _on_response(self, result: dict, node: dict, prepared=None) -> None:
         node_id = node.get("id")
         self.pending.discard(node_id)
+        self.enviando_para.pop(node_id, None)
         editor = self.editors.get(node_id)
         if editor:
             editor.set_sending(False)

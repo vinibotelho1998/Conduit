@@ -159,9 +159,53 @@ class Pill(QLabel):
         self.setText(texto)
         self.setStyleSheet(
             f"color: {cor}; background: {fundo}; border: 1px solid {cor}44;"
-            f" border-radius: 9px; padding: 2px 10px; font-weight: 700;"
+            f" border-radius: 11px; padding: 3px 12px; font-weight: 700;"
         )
         self.show()
+
+
+class Espera(QWidget):
+    """Ponto que pulsa ao lado da palavra enviando, no lugar da pilula de status."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._passo = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(90)
+        self._timer.timeout.connect(self._bater)
+        self.setFixedHeight(24)
+        self.setMinimumWidth(86)
+        self.hide()
+
+    def start(self) -> None:
+        self._passo = 0
+        self.show()
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._timer.stop()
+        self.hide()
+
+    def _bater(self) -> None:
+        self._passo = (self._passo + 1) % 40
+        self.update()
+
+    def paintEvent(self, evento):  # noqa: N802
+        pintor = QPainter(self)
+        pintor.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        fase = abs(self._passo - 20) / 20.0
+        cor = QColor(theme.ACCENT)
+        cor.setAlpha(int(90 + 165 * fase))
+        pintor.setPen(Qt.PenStyle.NoPen)
+        pintor.setBrush(cor)
+        centro = self.height() / 2
+        pintor.drawEllipse(QRectF(1.0, centro - 3.5, 7.0, 7.0))
+        pintor.setPen(QColor(theme.DIM))
+        pintor.drawText(
+            QRectF(14.0, 0, self.width() - 14.0, self.height()),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            "enviando",
+        )
 
 
 class BodyView(QWidget):
@@ -181,8 +225,12 @@ class BodyView(QWidget):
         self.highlighter = CodeHighlighter(self.edit.document(), "none")
         layout.addWidget(self.edit, 1)
 
+        # A busca nasce fechada e vive atras da lupa da barra de cima. Aberta o tempo
+        # todo, ela comia trinta pixels de altura em toda resposta so pra ficar vazia.
         barra = QWidget()
         barra.setFixedHeight(32)
+        barra.hide()
+        self.barra_busca = barra
         bl = QHBoxLayout(barra)
         bl.setContentsMargins(8, 0, 8, 0)
         bl.setSpacing(6)
@@ -208,6 +256,18 @@ class BodyView(QWidget):
 
         self._ocorrencias: list[int] = []
         self._atual = -1
+
+        fechar = QShortcut(QKeySequence(Qt.Key.Key_Escape), self.busca)
+        fechar.setContext(Qt.ShortcutContext.WidgetShortcut)
+        fechar.activated.connect(lambda: self.mostrar_busca(False))
+
+    def mostrar_busca(self, ligado: bool) -> None:
+        self.barra_busca.setVisible(ligado)
+        if ligado:
+            self.busca.setFocus()
+            self.busca.selectAll()
+        else:
+            self.busca.clear()
 
     def set_text(self, texto: str, language: str) -> None:
         self.edit.setPlainText(texto)
@@ -315,7 +375,10 @@ class ResponseView(QWidget):
         self.pill = Pill()
         cl.addWidget(self.pill)
 
-        self.metricas = QLabel("")
+        self.espera = Espera()
+        cl.addWidget(self.espera)
+
+        self.metricas = Elastico()
         self.metricas.setStyleSheet(f"color: {theme.DIM};")
         cl.addWidget(self.metricas)
 
@@ -346,7 +409,7 @@ class ResponseView(QWidget):
             "", "guardar esta resposta como exemplo do request", icons.icone_marcador()
         )
         self.btn_exemplo.clicked.connect(self.salvar_exemplo.emit)
-        for b in (self.btn_wrap, self.btn_copiar, self.btn_salvar, self.btn_exemplo):
+        for b in (self.btn_busca, self.btn_wrap, self.btn_copiar, self.btn_salvar, self.btn_exemplo):
             cl.addWidget(b)
         root.addWidget(cabeca)
 
@@ -374,13 +437,27 @@ class ResponseView(QWidget):
         self.tabs.addTab(self.headers_box, "Headers")
         self.tabs.addTab(self.cookies_box, "Cookies")
         self.tabs.addTab(self.enviado_box, "Enviado")
+        so_a_pagina_aberta(self.tabs)
         root.addWidget(self.tabs, 1)
 
+        atalho = QShortcut(QKeySequence.StandardKey.Find, self)
+        atalho.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        atalho.activated.connect(lambda: self.btn_busca.setChecked(True))
+
         self.clear()
+
+    def _alternar_busca(self, ligado: bool) -> None:
+        for corpo in (self.pretty, self.raw):
+            corpo.mostrar_busca(ligado)
+        if ligado:
+            atual = self.tabs.currentWidget()
+            if isinstance(atual, BodyView):
+                atual.busca.setFocus()
 
     # ------------------------------------------------------------------ estado
 
     def clear(self) -> None:
+        self.espera.stop()
         self._dados = None
         self.marca.hide()
         self.pill.hide()
@@ -403,10 +480,18 @@ class ResponseView(QWidget):
             self.tabs.set_badge(indice, "")
         self.tabs.setTabEnabled(2, False)
 
-    def show_pending(self) -> None:
-        self.pill.set_status("enviando", theme.ACCENT, "#12243a")
+    def show_pending(self, url: str = "") -> None:
+        """Enquanto espera, a faixa e a mesma faixa: ponto pulsando e o alvo.
+
+        A pilula colorida de status nao serve aqui. Ela le como resultado, e
+        enviando nao e resultado nenhum: fica um retangulo aceso no meio da tela
+        dizendo nada.
+        """
+        self.pill.hide()
+        self.marca.hide()
+        self.espera.start()
         self.metricas.setText("")
-        self.url_final.setText("")
+        self.url_final.setText(url)
         self.pretty.edit.setPlaceholderText("aguardando resposta")
         self.pretty.set_text("", "none")
 
@@ -421,6 +506,7 @@ class ResponseView(QWidget):
         )
 
     def show_response(self, data: dict, sent: dict | None = None) -> None:
+        self.espera.stop()
         self._dados = data
         self._marcar_exemplo(data.get("exemplo") or "")
         ok = bool(data.get("ok"))
@@ -436,25 +522,28 @@ class ResponseView(QWidget):
         content_type = header_value(headers, "content-type").split(";")[0]
         tamanho_headers = sum(len(str(k)) + len(str(v)) + 4 for k, v in headers)
 
+        # Na barra fica so o que se le de relance. O resto vira tooltip: com tudo
+        # escrito lado a lado a faixa virava um paragrafo em cima da resposta.
         pedacos = [human_ms(data.get("elapsedMs"))]
+        miudos = []
         if ok:
             pedacos.append(human_bytes(data.get("sizeBytes")))
             if content_type:
                 pedacos.append(content_type)
             if tamanho_headers:
-                pedacos.append(f"headers {human_bytes(tamanho_headers)}")
+                miudos.append(f"headers {human_bytes(tamanho_headers)}")
             servidor = header_value(headers, "server")
             if servidor:
-                pedacos.append(servidor)
-            data_resposta = header_value(headers, "date")
-            atraso = self._defasagem(data_resposta)
+                miudos.append(f"servidor {servidor}")
+            atraso = self._defasagem(header_value(headers, "date"))
             if atraso:
-                pedacos.append(atraso)
+                miudos.append(atraso)
         self.metricas.setText("   ·   ".join(p for p in pedacos if p))
+        if miudos:
+            self.metricas.setToolTip("\n".join(miudos))
 
         final = data.get("url") or (sent or {}).get("url") or ""
         self.url_final.setText(final)
-        self.url_final.setToolTip(final)
 
         corpo = data.get("body") or ""
         if not ok:
