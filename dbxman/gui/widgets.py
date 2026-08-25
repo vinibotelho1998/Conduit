@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTabBar,
     QTabWidget,
     QWidget,
@@ -169,3 +170,32 @@ class Faixa(QWidget):
 
     def esconder(self) -> None:
         self.hide()
+
+
+def so_a_pagina_aberta(tabs: QTabWidget) -> None:
+    """Faz o conjunto de abas pedir o tamanho da pagina aberta, e nao da maior de todas.
+
+    O QTabWidget de fabrica soma o minimo da MAIOR pagina, mesmo que ela esteja
+    escondida. Uma aba com formulario comprido, como Auth, ou com tabela larga, como
+    Exemplos, passa a mandar no tamanho do painel inteiro: o divisor entre o request e a
+    resposta ja nasce no fim do curso, e o lado direito rouba largura da arvore.
+
+    O jeito de contornar e dizer que a pagina escondida nao tem opiniao sobre tamanho.
+    """
+
+    def ajustar(indice: int) -> None:
+        for i in range(tabs.count()):
+            pagina = tabs.widget(i)
+            if pagina is None:
+                continue
+            politica = (
+                QSizePolicy.Policy.Preferred if i == indice else QSizePolicy.Policy.Ignored
+            )
+            pagina.setSizePolicy(politica, politica)
+        atual = tabs.widget(indice)
+        if atual is not None:
+            atual.updateGeometry()
+        tabs.updateGeometry()
+
+    tabs.currentChanged.connect(ajustar)
+    ajustar(tabs.currentIndex())

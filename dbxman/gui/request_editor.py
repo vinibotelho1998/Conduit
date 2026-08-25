@@ -25,7 +25,7 @@ from . import theme
 from .highlight import CodeHighlighter, VarTooltip
 from .examples_panel import ExamplesPanel
 from .kvtable import KvTable
-from .widgets import BadgeTabs, Faixa
+from .widgets import BadgeTabs, Faixa, so_a_pagina_aberta
 
 METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 BODY_MODES = [("none", "none"), ("json", "json"), ("raw", "raw"), ("form", "form urlencoded")]
@@ -182,6 +182,7 @@ class RequestEditor(QWidget):
 
         self.exemplos = ExamplesPanel()
         self.tabs.addTab(self.exemplos, "Exemplos")
+        so_a_pagina_aberta(self.tabs)
         root.addWidget(self.tabs, 1)
 
         self._loading = False

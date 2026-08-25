@@ -6,8 +6,17 @@ import json
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QPixmap, QTextCursor, QTextDocument
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QColor,
+    QPainter,
+    QGuiApplication,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+    QTextCursor,
+    QTextDocument,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -31,7 +40,7 @@ from PySide6.QtWidgets import (
 from . import icons, theme
 from .highlight import CodeHighlighter, guess_language
 from .request_editor import mono
-from .widgets import BadgeTabs
+from .widgets import BadgeTabs, so_a_pagina_aberta
 
 
 def human_bytes(n: int | None) -> str:
@@ -85,11 +94,59 @@ def flat_button(texto: str, dica: str = "", icone=None) -> QToolButton:
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setStyleSheet(
         f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
-        f" padding: 3px 7px; border-radius: 4px; }}"
+        f" padding: 4px 7px; border-radius: 8px; }}"
         f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}"
         f"QToolButton:checked {{ background: {theme.RAISE}; color: {theme.ACCENT}; }}"
     )
     return btn
+
+
+class Elastico(QLabel):
+    """Rotulo que encolhe ate sumir em vez de empurrar o painel.
+
+    Um QLabel comum entrega o texto inteiro como largura minima. Com uma url de cento e
+    poucos caracteres, o lado direito da janela passava a exigir quase dois mil pixels, e
+    o splitter tirava essa largura da arvore: bastava chegar uma resposta comprida pra
+    coluna da esquerda encolher sozinha.
+    """
+
+    def __init__(self, modo=Qt.TextElideMode.ElideRight, parent=None):
+        super().__init__(parent)
+        self._modo = modo
+        self._cheio = ""
+        self.setMinimumWidth(1)
+
+    def setText(self, texto: str) -> None:  # noqa: N802
+        self._cheio = texto or ""
+        self.setToolTip(self._cheio)
+        self._encaixar()
+        self.updateGeometry()
+
+    def texto_cheio(self) -> str:
+        return self._cheio
+
+    def sizeHint(self):  # noqa: N802
+        """O que ele gostaria de ter e a largura do texto inteiro.
+
+        Sem isso o rotulo pergunta o tamanho do texto ja cortado, que foi cortado no
+        tamanho que ele tinha, e a conta se fecha em zero: ele some da barra.
+        """
+        tamanho = super().sizeHint()
+        tamanho.setWidth(self.fontMetrics().horizontalAdvance(self._cheio) + 2)
+        return tamanho
+
+    def minimumSizeHint(self):  # noqa: N802
+        tamanho = super().minimumSizeHint()
+        tamanho.setWidth(1)
+        return tamanho
+
+    def resizeEvent(self, evento):  # noqa: N802
+        super().resizeEvent(evento)
+        self._encaixar()
+
+    def _encaixar(self) -> None:
+        largura = max(0, self.width() - 2)
+        super().setText(self.fontMetrics().elidedText(self._cheio, self._modo, largura))
 
 
 class Pill(QLabel):
@@ -267,12 +324,17 @@ class ResponseView(QWidget):
         self.marca.hide()
         cl.addWidget(self.marca)
 
-        self.url_final = QLabel("")
+        self.url_final = Elastico(Qt.TextElideMode.ElideMiddle)
         self.url_final.setObjectName("hint")
         self.url_final.setFont(mono(8))
-        self.url_final.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.url_final.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         cl.addWidget(self.url_final, 1)
 
+        self.btn_busca = flat_button("", "procurar no corpo (Ctrl+F)", icons.icone_lupa())
+        self.btn_busca.setCheckable(True)
+        self.btn_busca.toggled.connect(self._alternar_busca)
         self.btn_wrap = flat_button("", "quebrar linha", icons.icone_quebra())
         self.btn_wrap.setCheckable(True)
         self.btn_wrap.toggled.connect(self._alternar_wrap)
