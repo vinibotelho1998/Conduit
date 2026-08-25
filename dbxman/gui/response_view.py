@@ -17,10 +17,12 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
     QTextBrowser,
+    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -173,7 +175,9 @@ class BodyView(QWidget):
                 cursor = documento.find(termo, cursor, QTextDocument.FindFlag(0))
                 if cursor.isNull():
                     break
-                selecao = QPlainTextEdit.ExtraSelection()
+                # ExtraSelection mora no QTextEdit, nao no QPlainTextEdit: escrito
+                # errado, a busca estourava excecao na primeira letra digitada
+                selecao = QTextEdit.ExtraSelection()
                 selecao.cursor = cursor
                 selecao.format.setBackground(QColor("#3d5a80"))
                 selecoes.append(selecao)
