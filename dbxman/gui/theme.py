@@ -132,10 +132,10 @@ QTabBar::tab:selected {{ color: {TEXT}; border-bottom-color: {ACCENT}; }}
 /* a lateral tem quatro abas em pouco espaco, entao aperta o respiro horizontal */
 QTabWidget#sideTabs > QTabBar::tab {{ padding: 8px 10px; margin-right: 0px; }}
 
-QSplitter::handle {{ background: {BORDER}; }}
-QSplitter::handle:horizontal {{ width: 1px; }}
-QSplitter::handle:vertical {{ height: 1px; }}
-QSplitter::handle:hover {{ background: {ACCENT}; }}
+/* A alca de um pixel era bonita e impossivel de pegar com o mouse. Agora ela tem
+   sete pixels de area de pega e continua parecendo um risco fino, porque quem
+   desenha e a classe Divisor: risco no meio e o resto na cor do fundo. */
+QSplitter::handle {{ background: transparent; }}
 
 QScrollBar:vertical {{ background: transparent; width: 11px; margin: 0; }}
 QScrollBar::handle:vertical {{ background: #2c313b; border-radius: 5px; min-height: 30px; margin: 2px; }}

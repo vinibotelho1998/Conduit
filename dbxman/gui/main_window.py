@@ -43,6 +43,7 @@ from .palette import Palette, PaletteItem
 from .request_editor import RequestEditor
 from .variables_dialog import VariablesDialog
 from .response_view import ResponseView
+from .splitter import Divisor
 from .tabbar import AbaTabs
 from .tree_panel import TreePanel
 
@@ -292,7 +293,7 @@ class MainWindow(QMainWindow):
         self.console.fechar_pedido.connect(lambda: self.alternar_console(False))
         self.console.hide()
 
-        right = QSplitter(Qt.Orientation.Vertical)
+        right = Divisor(Qt.Orientation.Vertical)
         right.addWidget(center)
         right.addWidget(self.response)
         right.addWidget(self.console)
@@ -300,11 +301,20 @@ class MainWindow(QMainWindow):
         right.setChildrenCollapsible(False)
         self.splitter_direita = right
 
-        main = QSplitter(Qt.Orientation.Horizontal)
+        # A coluna da esquerda tem tamanho proprio: sem fator de esticar, o Qt
+        # reparte qualquer sobra entre os dois lados e a arvore anda sozinha toda vez
+        # que a janela muda de tamanho.
+        self.side.setMinimumWidth(190)
+        self.side.setMaximumWidth(640)
+        main = Divisor(Qt.Orientation.Horizontal)
         main.addWidget(self.side)
         main.addWidget(right)
         main.setSizes([340, 1020])
         main.setChildrenCollapsible(False)
+        main.setStretchFactor(0, 0)
+        main.setStretchFactor(1, 1)
+        main.splitterMoved.connect(lambda *_: self._guardar_janela())
+        self.splitter_principal = main
 
         # a barra de baixo e um widget comum, e nao a QStatusBar do Qt: a de fabrica
         # esconde os botoes toda vez que aparece uma mensagem
@@ -542,6 +552,7 @@ class MainWindow(QMainWindow):
         self.tree_panel.uso = self.history.uso_por_request()
         self.statusBar().showMessage(f"workspace {entry['name']}", 3000)
         self._reabrir_rascunhos()
+        self._ler_janela()
 
     def _reabrir_rascunhos(self) -> None:
         """Abre de volta as abas que ficaram com alteracao sem salvar."""
@@ -964,6 +975,42 @@ class MainWindow(QMainWindow):
         except (OSError, KeyError):
             pass
 
+    def _caminho_janela(self):
+        if not self.workspace_id:
+            return None
+        try:
+            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxman"
+        except KeyError:
+            return None
+        raiz.mkdir(exist_ok=True)
+        return raiz / "janela.json"
+
+    def _guardar_janela(self) -> None:
+        """Grava a largura das colunas em .dbxman, que fica fora do git."""
+        alvo = self._caminho_janela()
+        if alvo is None:
+            return
+        dados = {
+            "colunas": self.splitter_principal.sizes(),
+            "linhas": self.splitter_direita.sizes(),
+        }
+        try:
+            alvo.write_text(json.dumps(dados), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _ler_janela(self) -> None:
+        alvo = self._caminho_janela()
+        if alvo is None or not alvo.exists():
+            return
+        try:
+            dados = json.loads(alvo.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        colunas = dados.get("colunas") or []
+        if len(colunas) == 2 and colunas[0] > 0:
+            self.splitter_principal.setSizes(colunas)
+
     def _ler_rascunhos(self) -> dict:
         if not self.workspace_id:
             return {}
@@ -996,6 +1043,7 @@ class MainWindow(QMainWindow):
         self.tree_panel.refresh_icon(real)
         self.fav_panel.refresh()
         self._marcar_aba(widget)
+        self._guardar_janela()
         self._guardar_rascunhos()
         self._save_now()
         self.statusBar().showMessage("{} salvo".format(real.get("name")), 3000)
