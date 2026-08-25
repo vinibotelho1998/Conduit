@@ -346,6 +346,9 @@ class KvTable(QWidget):
         if self._loading:
             return
         row = item.row()
+        # a coluna tem que sair daqui, antes do reload: remontar a grade apaga a celula
+        # do lado C++, e ler item.column() depois derruba o app com objeto ja deletado
+        coluna = item.column()
         is_ghost = bool(item.data(Qt.ItemDataRole.UserRole))
         key = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
         value = self.table.item(row, 2).text() if self.table.item(row, 2) else ""
@@ -358,7 +361,7 @@ class KvTable(QWidget):
                 novo["secret"] = False
             self.rows.append(novo)
             self.reload()
-            self.table.setCurrentCell(len(self.rows) - 1, item.column())
+            self.table.setCurrentCell(len(self.rows) - 1, coluna)
         else:
             if 0 <= row < len(self.rows):
                 self.rows[row]["key"] = key
