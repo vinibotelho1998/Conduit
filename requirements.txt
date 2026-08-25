@@ -1,0 +1,6 @@
+# Versoes que estao rodando aqui. Fixadas de proposito: PySide6 quebra API entre
+# versoes menores com alguma frequencia, e o app desenha muita coisa na mao.
+PySide6==6.11.2
+httpx==0.28.1
+PyYAML==6.0.3
+cryptography==50.0.0
