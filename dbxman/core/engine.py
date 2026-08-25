@@ -11,6 +11,11 @@ from . import auth as authmod, certs
 from .vars import Resolved, resolve
 
 
+# Segundos pra abrir a conexao. So isso tem teto: depois de conectado o app
+# espera a resposta o tempo que ela levar.
+CONEXAO = 30.0
+
+
 @dataclass
 class Prepared:
     method: str = "GET"
@@ -19,7 +24,9 @@ class Prepared:
     body: str | None = None
     missing: list[str] = field(default_factory=list)
     secrets: list[tuple[str, str]] = field(default_factory=list)
-    timeout: float = 60.0
+    # Zero quer dizer sem limite de leitura. Um minuto derrubava chamada legitima:
+    # api de orgao publico costuma passar disso e a resposta vinha depois.
+    timeout: float = 0.0
     verify_tls: bool = True
     ca_arquivo: str = ""
     follow_redirects: bool = True
@@ -83,7 +90,7 @@ def prepare(
             out.headers["Content-Type"] = "application/x-www-form-urlencoded"
 
     settings = request.get("settings") or {}
-    out.timeout = float(settings.get("timeout") or 60)
+    out.timeout = float(settings.get("timeout") or 0)
     out.verify_tls = settings.get("verifyTls", True)
     out.ca_arquivo = ""
     out.follow_redirects = settings.get("followRedirects", True)
@@ -152,8 +159,15 @@ def send(prepared: Prepared) -> dict:
 
     started = time.perf_counter()
     try:
+        # Sem teto de leitura, mas com teto pra conectar: host morto tem que falhar
+        # rapido, resposta demorada tem que ser esperada ate o fim.
+        limite = (
+            httpx.Timeout(prepared.timeout, connect=CONEXAO)
+            if prepared.timeout
+            else httpx.Timeout(None, connect=CONEXAO)
+        )
         with httpx.Client(
-            timeout=prepared.timeout,
+            timeout=limite,
             verify=verificacao,
             follow_redirects=prepared.follow_redirects,
             cookies=prepared.cookies or None,
