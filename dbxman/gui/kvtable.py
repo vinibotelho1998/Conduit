@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QStyle,
@@ -19,9 +18,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import theme
+from . import icons, theme
+from .controles import BotaoApagar, Marcador
 from .highlight import VAR_PY, cor_da_variavel
 
+
+
+def _centrado(widget: QWidget) -> QWidget:
+    """Poe o controle no meio da celula sem pintar fundo por cima da linha escolhida."""
+    wrap = QWidget()
+    wrap.setStyleSheet("background: transparent;")
+    hl = QHBoxLayout(wrap)
+    hl.setContentsMargins(0, 0, 0, 0)
+    hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    hl.addWidget(widget)
+    return wrap
 
 class DicaDelegate(QStyledItemDelegate):
     """Pinta a dica da linha vazia e as variaveis da celula.
@@ -228,6 +239,9 @@ class KvTable(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # a marca de escolhido pega a linha toda: celula sozinha vira uma caixinha
+        # solta no meio da grade, sem comeco nem fim
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked
             | QAbstractItemView.EditTrigger.SelectedClicked
@@ -277,16 +291,19 @@ class KvTable(QWidget):
         self._append_row({"key": "", "value": "", "enabled": True}, ghost=True)
         self._loading = False
 
-    def _checkbox(self, marcado: bool, ao_mudar) -> QWidget:
-        box = QCheckBox()
+    def _checkbox(self, marcado: bool, ao_mudar, dica: str = "") -> QWidget:
+        box = Marcador()
         box.setChecked(marcado)
+        if dica:
+            box.setToolTip(dica)
         box.stateChanged.connect(ao_mudar)
-        wrap = QWidget()
-        hl = QHBoxLayout(wrap)
-        hl.setContentsMargins(0, 0, 0, 0)
-        hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hl.addWidget(box)
-        return wrap
+        return _centrado(box)
+
+    def _botao_apagar(self, data: dict) -> QWidget:
+        """X desenhado, com area de clique redonda que so acende no hover."""
+        botao = BotaoApagar()
+        botao.clicked.connect(lambda _=False, d=data: self._remove(d))
+        return _centrado(botao)
 
     def _append_row(self, data: dict, ghost: bool) -> None:
         index = self.table.rowCount()
@@ -297,7 +314,11 @@ class KvTable(QWidget):
             self.table.setCellWidget(
                 index,
                 0,
-                self._checkbox(data.get("enabled", True) is not False, lambda st, d=data: self._toggle(d, st)),
+                self._checkbox(
+                    data.get("enabled", True) is not False,
+                    lambda st, d=data: self._toggle(d, st),
+                    "desmarque pra nao mandar esta linha",
+                ),
             )
 
         for col, field in ((1, "key"), (2, "value")):
@@ -313,18 +334,15 @@ class KvTable(QWidget):
             self.table.setCellWidget(
                 index,
                 self.col_secret,
-                self._checkbox(bool(data.get("secret")), lambda st, d=data: self._toggle_secret(d, st)),
+                self._checkbox(
+                    bool(data.get("secret")),
+                    lambda st, d=data: self._toggle_secret(d, st),
+                    "valor secreto: fica no cofre e nunca sai em log, historico ou git",
+                ),
             )
 
         if not ghost:
-            btn = QToolButton()
-            btn.setText("×")
-            btn.setStyleSheet(
-                f"QToolButton {{ border: 0; color: {theme.FAINT}; }}"
-                f"QToolButton:hover {{ color: {theme.ERR}; }}"
-            )
-            btn.clicked.connect(lambda _=False, d=data: self._remove(d))
-            self.table.setCellWidget(index, self.col_del, btn)
+            self.table.setCellWidget(index, self.col_del, self._botao_apagar(data))
 
     # ----------------------------------------------------------------- eventos
 

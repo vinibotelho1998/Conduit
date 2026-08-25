@@ -14,6 +14,10 @@ TEXT = "#d8dde5"
 DIM = "#98a1b0"
 FAINT = "#6b7484"
 ACCENT = "#4da3ff"
+# azul da marca de escolhido, ja misturado com o fundo. rgba na folha de estilo do
+# Qt e traicoeiro: quando ele nao entende o valor, joga a regra fora e cai no azul
+# chapado do sistema, que na grade vira uma tarja acesa
+SEL = "#1d3149"
 OK = "#49cc90"
 WARN = "#fca130"
 ERR = "#f9506b"
@@ -145,18 +149,32 @@ QScrollBar::handle:horizontal {{ background: #2c313b; border-radius: 5px; min-wi
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
+/* Marcada, a caixa era um quadrado azul liso: sem visto dentro, nao le como caixa
+   marcada, le como celula pintada. O visto e um png desenhado uma vez, porque folha de
+   estilo do Qt nao desenha forma nenhuma. Mesma historia pro miolo do radio. */
 QCheckBox::indicator {{
-    width: 15px; height: 15px; border: 1px solid {BORDER}; border-radius: 5px; background: {PANEL2};
+    width: 16px; height: 16px; border: 1px solid {BORDER}; border-radius: 5px;
+    background: {PANEL2};
 }}
-QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QCheckBox::indicator:hover {{ border-color: {FAINT}; }}
+QCheckBox::indicator:checked {{
+    background: {ACCENT}; border-color: {ACCENT}; image: url(__VISTO__);
+}}
+QCheckBox::indicator:checked:hover {{ background: #66b1ff; border-color: #66b1ff; }}
 
 QRadioButton::indicator {{
-    width: 14px; height: 14px; border: 1px solid {BORDER}; border-radius: 8px; background: {PANEL2};
+    width: 15px; height: 15px; border: 1px solid {BORDER}; border-radius: 8px;
+    background: {PANEL2};
 }}
-QRadioButton::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
+QRadioButton::indicator:hover {{ border-color: {FAINT}; }}
+/* Borda de cinco pixels aumenta a caixa e o raio de oito para de fechar o circulo:
+   sai um quadrado de canto redondo. O miolo entao e desenhado, igual ao visto. */
+QRadioButton::indicator:checked {{
+    background: {PANEL2}; border-color: {ACCENT}; image: url(__PONTO__);
+}}
 
 QPushButton#salvar {{
-    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 9px;
+    background: {PANEL2}; border: 1px solid {BORDER}; border-radius: 11px;
     padding: 0 16px; color: {TEXT}; font-weight: 600;
 }}
 QPushButton#salvar:hover {{ background: {RAISE}; border-color: {ACCENT}; }}
@@ -197,19 +215,64 @@ def _desenhar_chevron(destino: Path) -> bool:
     return pix.save(str(destino))
 
 
+def _desenhar_visto(destino: Path) -> bool:
+    """O visto que vai dentro da caixa marcada."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+
+    pix = QPixmap(16, 16)
+    pix.setDevicePixelRatio(1.0)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    caneta = QPen(QColor("#0e1b2b"))
+    caneta.setWidthF(2.1)
+    caneta.setCapStyle(Qt.PenCapStyle.RoundCap)
+    caneta.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(caneta)
+    painter.drawPolyline([QPointF(4.0, 8.3), QPointF(6.9, 11.2), QPointF(12.0, 5.2)])
+    painter.end()
+    return pix.save(str(destino))
+
+
+def _desenhar_ponto(destino: Path) -> bool:
+    """O miolo do radio marcado."""
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QColor, QPainter, QPixmap
+
+    pix = QPixmap(15, 15)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(ACCENT))
+    painter.drawEllipse(QRectF(3.6, 3.6, 7.8, 7.8))
+    painter.end()
+    return pix.save(str(destino))
+
+
 def folha() -> str:
     """A folha de estilo pronta pra uso, com o caminho da setinha ja resolvido.
 
     Precisa ser funcao e nao constante porque desenhar exige o QApplication de pe, e a
     constante nasce no import do modulo.
     """
-    destino = Path(tempfile.gettempdir()) / "dbx-wire-chevron.png"
-    try:
-        if not destino.exists():
-            _desenhar_chevron(destino)
-        if destino.exists():
-            return QSS.replace("__CHEVRON__", destino.as_posix())
-    except Exception:  # noqa: BLE001
-        pass
-    # sem o arquivo, some com a regra e o Qt desenha a seta padrao dele
-    return QSS.replace("image: url(__CHEVRON__);", "")
+    pasta = Path(tempfile.gettempdir())
+    folha_pronta = QSS
+    for marca, arquivo, desenho in (
+        ("__CHEVRON__", "dbx-wire-chevron.png", _desenhar_chevron),
+        ("__VISTO__", "dbx-wire-visto.png", _desenhar_visto),
+        ("__PONTO__", "dbx-wire-ponto.png", _desenhar_ponto),
+    ):
+        destino = pasta / arquivo
+        try:
+            if not destino.exists():
+                desenho(destino)
+            if destino.exists():
+                folha_pronta = folha_pronta.replace(marca, destino.as_posix())
+                continue
+        except Exception:  # noqa: BLE001
+            pass
+        # sem o arquivo, some com a regra e o Qt desenha do jeito padrao dele
+        folha_pronta = folha_pronta.replace(f"image: url({marca});", "")
+    return folha_pronta
