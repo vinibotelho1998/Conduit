@@ -1,7 +1,7 @@
 """Certificado cliente por host, o mTLS.
 
 Por que isso existe aqui. Varios bancos e orgaos publicos exigem certificado cliente
-`.pfx`, e o Postman trata isso mal. httpx e a `ssl` do Python nao carregam `.pfx`
+em `.pfx`, e o Postman trata isso mal. httpx e a `ssl` do Python nao carregam `.pfx`
 direto, so PEM, entao o arquivo e convertido em memoria e escrito num PEM temporario
 com permissao restrita, usado no handshake e apagado logo depois.
 

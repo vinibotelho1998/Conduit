@@ -38,7 +38,6 @@ TRACE_KEYS = {
     "x-b3-traceid",
     "traceparent",
     "request-id",
-    "x-transaction-id",
 }
 
 # Nomes sempre mascarados, segunda camada de defesa alem do ledger.
