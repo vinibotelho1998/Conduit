@@ -1,4 +1,4 @@
-"""Janela principal do DBX Wire."""
+"""Janela principal do Dbx Wire."""
 
 from __future__ import annotations
 
@@ -577,7 +577,7 @@ class MainWindow(QMainWindow):
         try:
             entry = ws.create_workspace(name.strip())
         except ValueError as exc:
-            QMessageBox.warning(self, "DBX Wire", str(exc))
+            QMessageBox.warning(self, "Dbx Wire", str(exc))
             return
         self._load_registry()
         self.load_workspace(entry["id"])

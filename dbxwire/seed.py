@@ -126,7 +126,7 @@ def _brasilapi() -> dict:
                         f"{base}/fipe/tabelas/v1",
                         docs="Codigo da tabela de referencia usado nas consultas de preco.\n"
                         "Aviso: em 24/08/2026 a origem da FIPE estava devolvendo 500. Se falhar, "
-                        "e o provedor, nao o DBX Wire.",
+                        "e o provedor, nao o Dbx Wire.",
                     ),
                     req(
                         "Preco por codigo FIPE",
@@ -210,7 +210,7 @@ def _jsonplaceholder() -> dict:
                 "POST",
                 f"{base}/posts",
                 headers=[kv("Content-Type", "application/json")],
-                body=json_body('{\n  "title": "DBX Wire",\n  "body": "criado pelo cliente local",\n  "userId": 1\n}'),
+                body=json_body('{\n  "title": "Dbx Wire",\n  "body": "criado pelo cliente local",\n  "userId": 1\n}'),
             ),
             req(
                 "Atualizar post inteiro",

@@ -1,4 +1,4 @@
-"""Registro e acesso aos workspaces do DBX Wire.
+"""Registro e acesso aos workspaces do Dbx Wire.
 
 Cada workspace e uma pasta isolada com suas proprias collections, environments,
 cofre e historico. Nada vaza de um workspace pro outro.
@@ -31,7 +31,7 @@ def _raiz_de_dados() -> Path:
     if definido:
         return Path(definido)
 
-    nova = Path.home() / "DBX-Wire"
+    nova = Path.home() / "Dbx-Wire"
     antiga = Path.home() / "DBX-MAN"
     if antiga.exists() and not nova.exists():
         try:
@@ -49,7 +49,7 @@ COLORS = ["#4da3ff", "#49cc90", "#fca130", "#c084fc", "#f93e3e", "#50e3c2"]
 
 # O que nunca pode ir pro git de um workspace compartilhado: o environment versionado
 # carrega o contrato, os nomes das variaveis, e o valor secreto fica no cofre local.
-GITIGNORE = """# gerado pelo DBX Wire
+GITIGNORE = """# gerado pelo Dbx Wire
 .secrets/
 certs/
 history/
@@ -174,7 +174,7 @@ def set_color(wid: str, cor: str) -> dict:
 
 
 def delete_workspace(wid: str, apagar_arquivos: bool = False) -> dict:
-    """Tira do registro. Com apagar_arquivos, move a pasta pra lixeira do DBX Wire.
+    """Tira do registro. Com apagar_arquivos, move a pasta pra lixeira do Dbx Wire.
 
     Nao apaga de vez nem com apagar_arquivos ligado. Workspace guarda meses de trabalho,
     e uma confirmacao errada nao pode ser irreversivel.

@@ -173,7 +173,7 @@ def ler_bru(caminho: Path, avisos: list) -> dict | None:
         }
 
     if "script:pre-request" in mapa or "script:post-response" in mapa or "tests" in mapa:
-        avisos.append(f"scripts e testes de {nome} nao vieram, o DBX Wire ainda nao roda script")
+        avisos.append(f"scripts e testes de {nome} nao vieram, o Dbx Wire ainda nao roda script")
 
     try:
         node["_seq"] = int(meta.get("seq") or 999)
@@ -351,7 +351,7 @@ def exportar(tree: dict, colecoes: list, destino: Path, com_segredo: bool = Fals
     destino = Path(destino)
     destino.mkdir(parents=True, exist_ok=True)
 
-    nome = colecoes[0].get("name") if len(colecoes) == 1 else "DBX Wire"
+    nome = colecoes[0].get("name") if len(colecoes) == 1 else "Dbx Wire"
     (destino / "bruno.json").write_text(
         json.dumps({"version": "1", "name": nome, "type": "collection"}, indent=2, ensure_ascii=False),
         encoding="utf-8",

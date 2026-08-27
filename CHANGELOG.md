@@ -1,4 +1,4 @@
-# Novidades do DBX Wire
+# Novidades do Dbx Wire
 
 ## 0.6.0, 24 de agosto de 2026
 
@@ -184,7 +184,7 @@
 
 ## 0.2.0, 24 de agosto de 2026
 
-Nome e identidade. O programa passou a se chamar **DBX Wire**, e o simbolo virou a linha
+Nome e identidade. O programa passou a se chamar **Dbx Wire**, e o simbolo virou a linha
 de pulso: sai reto, dispara no pico e volta ao normal quando a resposta chega. O icone e
 desenhado em codigo, sem arquivo de arte no repo, e sai nitido de 16 a 256 pixels.
 

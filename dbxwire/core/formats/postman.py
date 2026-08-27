@@ -192,7 +192,7 @@ def _item(bruto: dict, avisos: list) -> dict | None:
         node["auth"] = auth
 
     if bruto.get("event"):
-        avisos.append(f"scripts de {nome} nao vieram, o DBX Wire ainda nao roda script")
+        avisos.append(f"scripts de {nome} nao vieram, o Dbx Wire ainda nao roda script")
 
     return node
 

@@ -1,14 +1,14 @@
-; Instalador do DBX Wire.
+; Instalador do Dbx Wire.
 ;
-; Compile por packaging/DBXWire.spec (PyInstaller) e depois este arquivo. A versao
+; Compile por packaging/DbxWire.spec (PyInstaller) e depois este arquivo. A versao
 ; vem de /DMyAppVersion, passada pelo CI, com uma reserva pra compilar na mao.
 
-#define MyAppName "DBX Wire"
+#define MyAppName "Dbx Wire"
 #ifndef MyAppVersion
   #define MyAppVersion "0.6.0"
 #endif
-#define MyAppPublisher "DBX"
-#define MyAppExeName "DBXWire.exe"
+#define MyAppPublisher "Dbx"
+#define MyAppExeName "DbxWire.exe"
 #define MyAppUrl "https://github.com/vinibotelho1998/dbx-wire"
 
 [Setup]
@@ -36,7 +36,7 @@ DisableDirPage=auto
 LicenseFile=..\LICENSE
 
 OutputDir=..\dist
-OutputBaseFilename=DBXWire-Setup
+OutputBaseFilename=DbxWire-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -50,7 +50,7 @@ MinVersion=10.0
 PrivilegesRequired=lowest
 CloseApplications=yes
 RestartApplications=no
-SetupMutex=DBXWireSetupMutex
+SetupMutex=DbxWireSetupMutex
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -59,7 +59,7 @@ Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortugue
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; GroupDescription: "Atalhos:"
 
 [Files]
-Source: "..\dist\DBXWire\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\DbxWire\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -72,7 +72,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Abrir o {#MyAppName} agora"; Fl
 Type: filesandordirs; Name: "{app}\_internal\__pycache__"
 
 [Code]
-; Dados ficam em %USERPROFILE%\DBX-Wire, fora da pasta de instalacao, entao
+; Dados ficam em %USERPROFILE%\Dbx-Wire, fora da pasta de instalacao, entao
 ; desinstalar nunca apaga workspace nem cofre de segredos sem perguntar.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
@@ -80,7 +80,7 @@ var
 begin
   if CurUninstallStep <> usPostUninstall then
     Exit;
-  Dados := ExpandConstant('{%USERPROFILE}\DBX-Wire');
+  Dados := ExpandConstant('{%USERPROFILE}\Dbx-Wire');
   if not DirExists(Dados) then
     Exit;
   MsgBox('Os workspaces continuam em ' + Dados + #13#10 +

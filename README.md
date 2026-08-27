@@ -1,4 +1,4 @@
-# DBX Wire
+# Dbx Wire
 
 [![Build](https://github.com/vinibotelho1998/dbx-wire/actions/workflows/release.yml/badge.svg)](https://github.com/vinibotelho1998/dbx-wire/actions/workflows/release.yml)
 ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
@@ -10,7 +10,7 @@ voce mandar: nao existe conta, nao existe nuvem e nao existe telemetria.
 
 ## Instalação
 
-Baixe o **DBXWire-Setup.exe** da [última release](https://github.com/vinibotelho1998/dbx-wire/releases/latest),
+Baixe o **DbxWire-Setup.exe** da [última release](https://github.com/vinibotelho1998/dbx-wire/releases/latest),
 execute e pronto. Não precisa de Python nem do repositório.
 
 ## Rodar a partir do código-fonte
@@ -42,7 +42,7 @@ python -m venv .venv
 
 ## Onde ficam os dados
 
-Fora do repositorio, em `%USERPROFILE%\DBX-Wire`, um diretorio por workspace. Cada
+Fora do repositorio, em `%USERPROFILE%\Dbx-Wire`, um diretorio por workspace. Cada
 request e um arquivo YAML, entao o diff do git mostra a mudanca de verdade em vez de uma
 linha gigante.
 

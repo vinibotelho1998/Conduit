@@ -56,21 +56,21 @@ jobs:
           pip install pyinstaller
 
       - name: Build do app (PyInstaller)
-        run: pyinstaller packaging/DBXWire.spec --noconfirm --distpath dist --workpath build
+        run: pyinstaller packaging/DbxWire.spec --noconfirm --distpath dist --workpath build
 
       - name: Instalar Inno Setup
         run: choco install innosetup --no-progress -y
 
       - name: Compilar instalador
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.versao.outputs.numero }}" packaging\DBXWire_Setup.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.versao.outputs.numero }}" packaging\DbxWire_Setup.iss
 
       - name: Publicar release "latest"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --cleanup-tag --yes 2>$null
-          gh release create latest "dist/DBXWire-Setup.exe" `
-            --title "DBX Wire v${{ steps.versao.outputs.numero }}" `
+          gh release create latest "dist/DbxWire-Setup.exe" `
+            --title "Dbx Wire v${{ steps.versao.outputs.numero }}" `
             --notes "Instalador gerado automaticamente do commit ${{ github.sha }} (versao ${{ steps.versao.outputs.numero }})." `
             --latest

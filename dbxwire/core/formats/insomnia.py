@@ -68,7 +68,7 @@ def _corpo_de(bruto, avisos: list) -> dict:
         return {"mode": "form", "raw": urlencode(pares)}
 
     if "graphql" in tipo:
-        avisos.append("corpo GraphQL veio como texto, o DBX Wire ainda nao tem aba propria")
+        avisos.append("corpo GraphQL veio como texto, o Dbx Wire ainda nao tem aba propria")
         return {"mode": "raw", "raw": texto}
 
     if not texto:
