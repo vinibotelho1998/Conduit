@@ -98,7 +98,6 @@ class VarPopup(QFrame):
 
         self.setMaximumWidth(LARGURA_MAXIMA + 24)
 
-    # ------------------------------------------------------------------ estilo
 
     def _pintar(self, cor: str) -> None:
         self.cartao.setStyleSheet(
@@ -123,7 +122,6 @@ class VarPopup(QFrame):
             """
         )
 
-    # ------------------------------------------------------------------ dados
 
     def preencher(self, nome: str, info) -> None:
         if info is None:
@@ -203,7 +201,6 @@ class VarPopup(QFrame):
         self.valor.setMaximumWidth(LARGURA_MAXIMA)
         self.adjustSize()
 
-    # ------------------------------------------------------------- posicao
 
     def mostrar_em(self, ponto: QPoint) -> None:
         self._sumir.stop()
@@ -211,7 +208,6 @@ class VarPopup(QFrame):
         self.show()
         self.raise_()
 
-    # ------------------------------------------------------------- fabrica
 
     @classmethod
     def instancia(cls) -> "VarPopup":

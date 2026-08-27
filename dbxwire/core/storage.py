@@ -137,9 +137,6 @@ def _ler(caminho: Path) -> dict:
         return {}
 
 
-# ------------------------------------------------------------------- leitura
-
-
 def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
     raiz = Path(raiz)
     cofre = cofre if cofre is not None else Vault(raiz)
@@ -250,9 +247,6 @@ def _ler_request(caminho: Path) -> dict | None:
         if dados.get(extra):
             node[extra] = dados[extra]
     return node
-
-
-# ------------------------------------------------------------------ gravacao
 
 
 def gravar_workspace(

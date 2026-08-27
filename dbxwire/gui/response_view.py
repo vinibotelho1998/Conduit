@@ -365,7 +365,6 @@ class ResponseView(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ------------------------------------------------------------ cabecalho
         cabeca = QWidget()
         cabeca.setFixedHeight(42)
         cl = QHBoxLayout(cabeca)
@@ -418,7 +417,6 @@ class ResponseView(QWidget):
         self.linha.setStyleSheet(f"background: {theme.BORDER};")
         root.addWidget(self.linha)
 
-        # ----------------------------------------------------------------- abas
         self.tabs = BadgeTabs()
 
         self.pretty = BodyView()
@@ -454,7 +452,6 @@ class ResponseView(QWidget):
             if isinstance(atual, BodyView):
                 atual.busca.setFocus()
 
-    # ------------------------------------------------------------------ estado
 
     def clear(self) -> None:
         self.espera.stop()
@@ -571,7 +568,6 @@ class ResponseView(QWidget):
         if self.tabs.currentIndex() == 2 and not eh_html:
             self.tabs.setCurrentIndex(0)
 
-    # ------------------------------------------------------------- auxiliares
 
     def _montar_preview(self, data: dict, eh_html: bool, eh_imagem: bool, corpo: str) -> None:
         indice = self.tabs.indexOf(self.preview_box)
@@ -699,7 +695,6 @@ class ResponseView(QWidget):
         layout.addWidget(aviso)
         return caixa
 
-    # ---------------------------------------------------------------- acoes
 
     def _alternar_wrap(self, ligado: bool) -> None:
         self.pretty.set_wrap(ligado)

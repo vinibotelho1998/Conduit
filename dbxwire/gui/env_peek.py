@@ -157,7 +157,6 @@ class EnvPeek(QFrame):
 
         self.resize(780, 430)
 
-    # ------------------------------------------------------------------ dados
 
     def preencher(self, mapa: dict, nome_ambiente: str) -> None:
         self._carregando = True

@@ -231,9 +231,6 @@ def importar(caminho: Path) -> Resultado:
     return resultado
 
 
-# ------------------------------------------------------------------ exportacao
-
-
 def _auth_para(config: dict | None) -> dict:
     if not config or config.get("type") in (None, "none", "inherit"):
         return {}

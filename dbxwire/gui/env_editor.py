@@ -33,7 +33,6 @@ class EnvEditor(QWidget):
         raiz.setContentsMargins(12, 10, 12, 10)
         raiz.setSpacing(10)
 
-        # ------------------------------------------------------------ cabecalho
         cabeca = QHBoxLayout()
         cabeca.setSpacing(10)
 
@@ -67,7 +66,6 @@ class EnvEditor(QWidget):
         linha.setStyleSheet(f"background: {theme.BORDER};")
         raiz.addWidget(linha)
 
-        # --------------------------------------------------------------- grade
         env.setdefault("values", [])
         self.tabela = KvTable(env["values"], ("Nome", "Valor"), with_secret=True)
         self.tabela.changed.connect(self._mudou)
@@ -82,7 +80,6 @@ class EnvEditor(QWidget):
     def focar(self, nome: str) -> bool:
         return self.tabela.focar(nome)
 
-    # ------------------------------------------------------------------ estado
 
     def _mudou(self) -> None:
         self.atualizar()

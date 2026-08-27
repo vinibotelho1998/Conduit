@@ -89,7 +89,6 @@ class ConsolePanel(QWidget):
         self.texto.setPlaceholderText("nada aconteceu ainda nesta sessao")
         raiz.addWidget(self.texto, 1)
 
-    # ------------------------------------------------------------------ dados
 
     def registrar(self, mensagem: str, nivel: str = "info") -> None:
         hora = datetime.now().strftime("%H:%M:%S")

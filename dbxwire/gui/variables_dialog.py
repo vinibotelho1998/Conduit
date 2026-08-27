@@ -88,9 +88,7 @@ class VariablesDialog(QDialog):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
 
-        # ------------------------------------------------------------- globais
 
-        # ---------------------------------------------------------- collection
         colecao = next((n for n in self.ancestry if n.get("type") == "collection"), None)
         if colecao is not None:
             colecao.setdefault("variables", [])
@@ -103,7 +101,6 @@ class VariablesDialog(QDialog):
             self.pagina_colecao.changed.connect(self._mudou)
             self.tabs.addTab(self.pagina_colecao, "Collection")
 
-        # --------------------------------------------------------------- pasta
         pasta = next((n for n in reversed(self.ancestry) if n.get("type") == "folder"), None)
         if pasta is not None:
             pasta.setdefault("variables", [])
@@ -141,7 +138,6 @@ class VariablesDialog(QDialog):
                     self.tabs.setCurrentIndex(indice)
                     break
 
-    # ------------------------------------------------------------- ambientes
 
     def _pagina_ambientes(self) -> QWidget:
         pagina = QWidget()
@@ -289,7 +285,6 @@ class VariablesDialog(QDialog):
         self._recarregar_envs()
         self._mudou()
 
-    # -------------------------------------------------------------- efetivo
 
     def _pagina_efetivo(self) -> QWidget:
         pagina = QWidget()
@@ -360,7 +355,6 @@ class VariablesDialog(QDialog):
             f"{len(nomes)} variaveis efetivas   |   {secretas} secretas   |   {vazias} sem valor"
         )
 
-    # -------------------------------------------------------------- eventos
 
     def _ao_trocar_aba(self, _indice: int) -> None:
         self._atualizar_efetivo()

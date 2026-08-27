@@ -55,9 +55,6 @@ def _guardar(chave: str, pix: QPixmap) -> QIcon:
     return icone
 
 
-# ------------------------------------------------------------------- request
-
-
 def method_icon(method: str) -> QIcon:
     """Pilula com o metodo, fundo tingido e contorno na cor dele.
 
@@ -94,9 +91,6 @@ def method_icon(method: str) -> QIcon:
     painter.drawText(caixa, Qt.AlignmentFlag.AlignCenter, texto)
     painter.end()
     return _guardar(chave, pix)
-
-
-# ---------------------------------------------------------------- collection
 
 
 def collection_icon(cor: str = theme.ACCENT) -> QIcon:
@@ -136,9 +130,6 @@ def collection_icon(cor: str = theme.ACCENT) -> QIcon:
 
     painter.end()
     return _guardar(chave, pix)
-
-
-# --------------------------------------------------------------------- pasta
 
 
 def folder_icon(aberta: bool = False, cor: str = theme.DIM) -> QIcon:
@@ -194,9 +185,6 @@ def folder_icon(aberta: bool = False, cor: str = theme.DIM) -> QIcon:
     return _guardar(chave, pix)
 
 
-# -------------------------------------------------------------------- status
-
-
 def status_icon(status, ok: bool = True) -> QIcon:
     """Pilula com o codigo de status, na mesma familia visual da pilula de metodo."""
     chave = f"s5:{status}:{ok}"
@@ -242,9 +230,6 @@ def status_icon(status, ok: bool = True) -> QIcon:
     return _guardar(chave, pix)
 
 
-# ------------------------------------------------------------------- chevron
-
-
 def chevron_icon(aberto: bool, cor: str = theme.FAINT) -> QIcon:
     """Seta de expandir, na mesma familia de tracos do resto."""
     chave = f"v5:{aberto}:{cor}"
@@ -277,7 +262,6 @@ def limpar_cache() -> None:
     _cache.clear()
 
 
-# ------------------------------------------------------------------- acoes
 #
 # Icone de acao: quadrado de 18, traco de 1.5, mesma linguagem do chevron da arvore.
 # Rotulo escrito ficava comprido demais numa barra que tem quatro acoes lado a lado, e

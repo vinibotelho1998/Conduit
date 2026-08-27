@@ -95,7 +95,6 @@ def prepare(
     out.ca_arquivo = ""
     out.follow_redirects = settings.get("followRedirects", True)
 
-    # ------------------------------------------------------------------ auth
     config, origem = authmod.efetiva(request, ancestry)
     aplicada = authmod.aplicar(config, variables, cofre)
     out.auth_tipo = aplicada.tipo
@@ -113,7 +112,6 @@ def prepare(
         out.url = f"{base}?{query}"
     secrets.extend(aplicada.secrets)
 
-    # ---------------------------------------------------------- certificado
     if tree is not None:
         cert = certs.para_url(tree, out.url)
         if cert is not None:

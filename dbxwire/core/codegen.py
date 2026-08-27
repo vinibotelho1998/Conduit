@@ -51,9 +51,6 @@ def generate(language: str, method: str, url: str, headers: dict, body: str | No
     return fn(method, url, headers, body)
 
 
-# ----------------------------------------------------------------------- curl
-
-
 def _curl(method, url, headers, body) -> str:
     linhas = [f"curl -X {method} {shlex.quote(url)}"]
     for chave, valor in headers.items():
@@ -79,9 +76,6 @@ def _powershell(method, url, headers, body) -> str:
     chamada.append("-SkipHttpErrorCheck")
     partes.append(" ".join(chamada))
     return "\n".join(partes)
-
-
-# --------------------------------------------------------------------- python
 
 
 def _python_httpx(method, url, headers, body) -> str:
@@ -129,9 +123,6 @@ def _py_literal(body: str) -> str:
     return json.dumps(body, ensure_ascii=False)
 
 
-# ----------------------------------------------------------------- javascript
-
-
 def _fetch(method, url, headers, body) -> str:
     opcoes: dict = {"method": method}
     if headers:
@@ -173,9 +164,6 @@ def _js_literal(body: str) -> str:
         return json.dumps(json.loads(body), indent=2, ensure_ascii=False)
     except (json.JSONDecodeError, ValueError):
         return "`" + body.replace("`", "\\`") + "`"
-
-
-# ------------------------------------------------------------------- java, c#
 
 
 def _java(method, url, headers, body) -> str:

@@ -104,7 +104,6 @@ class CertsDialog(QDialog):
         cabeca.setStyleSheet("font-size: 14pt; font-weight: 700;")
         raiz.addWidget(cabeca)
 
-        # ------------------------------------------------------------ CA
         raiz.addWidget(titulo("CERTIFICADO DE CA"))
         explica_ca = QLabel(
             "Um arquivo pem com a autoridade em que este workspace deve confiar, alem das "
@@ -124,7 +123,6 @@ class CertsDialog(QDialog):
         raiz.addWidget(self.faixa_ca)
         raiz.addWidget(separador())
 
-        # -------------------------------------------------------- clientes
         raiz.addWidget(titulo("CERTIFICADOS CLIENTE"))
         explica = QLabel(
             "Quando a url do request bate com o host, esta identidade entra no handshake. "
@@ -171,7 +169,6 @@ class CertsDialog(QDialog):
         barra.addWidget(self.btn_remover)
         raiz.addLayout(barra)
 
-        # ------------------------------------------------- formulario novo
         self.form = QFrame()
         self.form.setObjectName("formCert")
         self.form.setStyleSheet(
@@ -249,7 +246,6 @@ class CertsDialog(QDialog):
         self._ca_mudou()
         self._mudou_selecao()
 
-    # ------------------------------------------------------------------ dados
 
     def _lista(self) -> list:
         return self.tree.setdefault("certificates", [])
@@ -308,7 +304,6 @@ class CertsDialog(QDialog):
         for botao in (self.btn_senha, self.btn_testar, self.btn_remover):
             botao.setEnabled(tem)
 
-    # ------------------------------------------------------------------- CA
 
     def _ca_mudou(self) -> None:
         caminho = self.ca.text()
@@ -328,7 +323,6 @@ class CertsDialog(QDialog):
             f"{dados['dono'][:70]}  ·  vale ate {dados['ate']}", theme.OK
         )
 
-    # ---------------------------------------------------------- formulario
 
     def _mostrar_form(self, mostrar: bool) -> None:
         self.form.setVisible(mostrar)
@@ -362,7 +356,6 @@ class CertsDialog(QDialog):
         quando = f"vale ate {dados['ate']}" if dias >= 0 else f"venceu em {dados['ate']}"
         self.faixa_form.mostrar(f"{dados['dono'][:66]}  ·  {quando}", cor)
 
-    # ---------------------------------------------------------------- acoes
 
     def adicionar(self) -> None:
         host = self.campo_host.text().strip()

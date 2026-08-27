@@ -16,9 +16,6 @@ from . import Resultado
 SCHEMA = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 
 
-# ------------------------------------------------------------------ deteccao
-
-
 def detectar(caminho: Path) -> float:
     if caminho.is_dir() or caminho.suffix.lower() != ".json":
         return 0.0
@@ -35,9 +32,6 @@ def detectar(caminho: Path) -> float:
         if "values" in dados and dados.get("_postman_variable_scope"):
             return 0.9
     return 0.0
-
-
-# ----------------------------------------------------------------- importacao
 
 
 def _url_de(bruto) -> tuple[str, list]:
@@ -262,9 +256,6 @@ def importar(caminho: Path) -> Resultado:
     resultado.collections.append(colecao)
     resultado.avisos = sorted(set(resultado.avisos))
     return resultado
-
-
-# ------------------------------------------------------------------ exportacao
 
 
 def _auth_para(config: dict | None):

@@ -36,9 +36,6 @@ ARQUIVO = "vault.dbx"
 ENTROPIA = b"dbxwire-vault-v1"
 
 
-# ------------------------------------------------------------------- DPAPI
-
-
 class _BLOB(ctypes.Structure):
     _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
 
@@ -81,9 +78,6 @@ def desproteger(dados: bytes) -> bytes:
     return _dpapi("CryptUnprotectData", dados)
 
 
-# -------------------------------------------------------------------- cofre
-
-
 def chave_de(env_id: str, nome: str) -> str:
     """Nome do segredo dentro do cofre, separado por ambiente."""
     return f"env:{env_id}:{nome}"
@@ -98,7 +92,6 @@ class Vault:
         self._dados: dict[str, str] | None = None
         self._erro: str | None = None
 
-    # ------------------------------------------------------------- interno
 
     def _nova_chave(self) -> bytes:
         return AESGCM.generate_key(bit_length=256)
@@ -143,7 +136,6 @@ class Vault:
         temporario.replace(self.caminho)
         self._dados = dict(dados)
 
-    # ------------------------------------------------------------- publico
 
     @property
     def erro(self) -> str | None:

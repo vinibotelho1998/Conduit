@@ -115,7 +115,6 @@ class History:
         self.db_path = self.dir / "index.db"
         self._conn: sqlite3.Connection | None = None
 
-    # ------------------------------------------------------------------ banco
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -132,7 +131,6 @@ class History:
             self._conn.close()
             self._conn = None
 
-    # --------------------------------------------------------------- gravacao
 
     def record(
         self,
@@ -221,7 +219,6 @@ class History:
         self.conn.commit()
         return entry_id
 
-    # ----------------------------------------------------------------- leitura
 
     def query(self, spec: Query) -> list[sqlite3.Row]:
         sql = "SELECT * FROM entries WHERE 1=1"
@@ -306,7 +303,6 @@ class History:
             "primeira": row["primeira"],
         }
 
-    # ---------------------------------------------------------------- limpeza
 
     def purge(self, body_days: int = 7, meta_days: int = 90) -> dict:
         """Corpo some rapido, metadado fica mais tempo. Ver secao 5 do PLANO.md."""
@@ -381,9 +377,6 @@ class History:
                     total += 1
         self.conn.commit()
         return total
-
-
-# ------------------------------------------------------------------ auxiliares
 
 
 def _mask(value: str) -> str:

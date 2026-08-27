@@ -252,14 +252,12 @@ class TreePanel(QWidget):
         self.tree.itemCollapsed.connect(lambda it: self._set_expanded(it, False))
         root.addWidget(self.tree, 1)
 
-    # ------------------------------------------------------------------ carga
 
     def load(self, tree_data: dict) -> None:
         self.tree_data = tree_data
         self._desfazer.clear()
         self.refresh()
 
-    # ------------------------------------------------------------- desfazer
 
     def guardar_estado(self, rotulo: str) -> None:
         """Foto da arvore antes de uma operacao que mexe na estrutura."""
@@ -281,7 +279,6 @@ class TreePanel(QWidget):
         self.favorito_mudou.emit()
         return rotulo
 
-    # ----------------------------------------------------------- ordenacao
 
     MODOS = {
         "manual": "Ordem manual",
@@ -404,7 +401,6 @@ class TreePanel(QWidget):
         for index in range(item.childCount()):
             self._apply_expansion(item.child(index))
 
-    # ---------------------------------------------------------------- eventos
 
     def _node_por_indice(self, index) -> dict | None:
         return self._by_id.get(index.data(ROLE_ID))
@@ -472,7 +468,6 @@ class TreePanel(QWidget):
             if node.get("type") != "request":
                 node["expanded"] = False
 
-    # ------------------------------------------------------------------ menu
 
     def _menu(self, pos) -> None:
         item = self.tree.itemAt(pos)
@@ -527,7 +522,6 @@ class TreePanel(QWidget):
 
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
-    # ------------------------------------------------------------- operacoes
 
     def _iter_nodes(self, items=None):
         for node in items if items is not None else (self.tree_data.get("collections") or []):

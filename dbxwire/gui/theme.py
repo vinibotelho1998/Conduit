@@ -202,9 +202,6 @@ QToolTip {{ background: {PANEL2}; color: {TEXT}; border: 1px solid {BORDER}; bor
 """
 
 
-# --------------------------------------------------------------- a setinha
-
-
 def _desenhar_chevron(destino: Path) -> bool:
     """Desenha a setinha do combo num png.
 

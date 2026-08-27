@@ -137,7 +137,6 @@ class FavoritesPanel(QWidget):
         self.vazio.setWordWrap(True)
         raiz.addWidget(self.vazio, 1)
 
-    # ------------------------------------------------------------------ dados
 
     def load(self, tree_data: dict) -> None:
         self.tree_data = tree_data
@@ -181,7 +180,6 @@ class FavoritesPanel(QWidget):
         self.vazio.setVisible(not tem)
         self.contagem.setText(str(len(favoritos)) if tem else "")
 
-    # ---------------------------------------------------------------- eventos
 
     def _clicou(self, item: QListWidgetItem) -> None:
         alvo = item.data(PAPEL)

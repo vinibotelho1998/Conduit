@@ -65,7 +65,6 @@ class Rodape(QWidget):
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.clearMessage)
 
-    # --------------------------------------------- mesma cara da QStatusBar
 
     def addWidget(self, widget) -> None:  # noqa: N802
         """Entra a esquerda, antes da mensagem, e nao some quando ela aparece."""

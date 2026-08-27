@@ -124,9 +124,6 @@ def aplicar(config: dict, variaveis: dict, cofre=None) -> AuthAplicada:
     return saida
 
 
-# ------------------------------------------------------------------- OAuth2
-
-
 def _assinatura(config: dict, url: str, client_id: str, escopo: str) -> str:
     bruto = json.dumps([url, client_id, escopo], sort_keys=True)
     return "oauth:" + hashlib.sha256(bruto.encode("utf-8")).hexdigest()[:24]

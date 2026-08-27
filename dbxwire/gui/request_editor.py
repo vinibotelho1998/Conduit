@@ -110,7 +110,6 @@ class RequestEditor(QWidget):
         root.setContentsMargins(12, 10, 12, 0)
         root.setSpacing(7)
 
-        # ------------------------------------------------------------ url bar
         bar = QHBoxLayout()
         bar.setSpacing(8)
 
@@ -164,7 +163,6 @@ class RequestEditor(QWidget):
         self.aviso.acao.connect(lambda: self.pedir_variavel.emit(self._alvo_aviso))
         root.addWidget(self.aviso)
 
-        # --------------------------------------------------------------- abas
         self.tabs = BadgeTabs()
 
         request.setdefault("params", [])
@@ -192,7 +190,6 @@ class RequestEditor(QWidget):
         # montar a tela nao e digitar: nada do que veio do arquivo pede variavel nova
         self._timer_novas.stop()
 
-    # ------------------------------------------------------------------ body
 
     def _build_body(self) -> QWidget:
         wrap = QWidget()
@@ -274,7 +271,6 @@ class RequestEditor(QWidget):
         self.docs.textChanged.connect(self._on_docs)
         return self.docs
 
-    # --------------------------------------------------------------- eventos
 
     def _ao_mudar_params(self) -> None:
         self._params_para_url()
@@ -302,7 +298,6 @@ class RequestEditor(QWidget):
         self._atualizar_aviso()
         self._bubble()
 
-    # ------------------------------------------- sincronia entre url e params
     #
     # A url e a aba Params sao duas vistas do mesmo dado, igual ao Postman. Editar
     # um lado atualiza o outro. O motor usa a lista de params como fonte na hora de
@@ -402,7 +397,6 @@ class RequestEditor(QWidget):
             return
         self.body.setPlainText(json.dumps(parsed, indent=2, ensure_ascii=False))
 
-    # --------------------------------------------------------------- publico
 
     def set_variables(self, variables: dict) -> None:
         """Recebe o mapa efetivo, com escopo e origem de cada nome."""

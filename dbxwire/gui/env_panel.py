@@ -83,7 +83,6 @@ class EnvPanel(QWidget):
         self.rodape.setStyleSheet(f"color: {theme.FAINT}; padding: 8px 12px; font-size: 8pt;")
         raiz.addWidget(self.rodape)
 
-    # ------------------------------------------------------------------ dados
 
     def load(self, tree_data: dict) -> None:
         self.tree_data = tree_data
@@ -138,7 +137,6 @@ class EnvPanel(QWidget):
                 self.lista.setCurrentRow(indice)
                 return
 
-    # ---------------------------------------------------------------- eventos
 
     def _clicou(self, item: QListWidgetItem) -> None:
         alvo = item.data(PAPEL_ID)

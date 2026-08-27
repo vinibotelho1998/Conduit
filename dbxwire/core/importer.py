@@ -108,9 +108,6 @@ def aplicar(tree: dict, resultado: Resultado, prefixo_nome: bool = False) -> dic
     return contagem
 
 
-# ------------------------------------------------------------------ exportacao
-
-
 def exportar(tree: dict, colecoes: list, formato: str, destino: str | Path, com_segredo: bool = False):
     destino = Path(destino)
 

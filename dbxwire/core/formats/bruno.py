@@ -47,9 +47,6 @@ def detectar(caminho: Path) -> float:
     return 0.9 if caminho.suffix.lower() == ".bru" else 0.0
 
 
-# ------------------------------------------------------------------- parser
-
-
 def _blocos(texto: str) -> list[tuple[str, str]]:
     """Quebra o arquivo em pares de cabecalho e conteudo, contando chaves."""
     saida: list[tuple[str, str]] = []
@@ -273,9 +270,6 @@ def importar(caminho: Path) -> Resultado:
     resultado.collections.append(colecao)
     resultado.avisos = sorted(set(resultado.avisos))
     return resultado
-
-
-# ------------------------------------------------------------------ exportacao
 
 
 def _escrever_bru(node: dict, destino: Path, seq: int) -> None:

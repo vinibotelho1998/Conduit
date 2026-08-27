@@ -106,7 +106,6 @@ class WorkspacesDialog(QDialog):
 
         self.recarregar()
 
-    # ------------------------------------------------------------------ dados
 
     def recarregar(self, selecionar: str | None = None) -> None:
         registro = ws.list_workspaces()
@@ -176,7 +175,6 @@ class WorkspacesDialog(QDialog):
         wid = item.data(Qt.ItemDataRole.UserRole)
         return next((e for e in self.entradas if e["id"] == wid), None)
 
-    # ---------------------------------------------------------------- acoes
 
     def renomear(self) -> None:
         entrada = self.selecionado()

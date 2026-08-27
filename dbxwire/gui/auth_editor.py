@@ -117,7 +117,6 @@ class AuthEditor(QWidget):
         self._carregar()
         self._carregando = False
 
-    # ---------------------------------------------------------------- montagem
 
     def _aviso(self, texto: str) -> QWidget:
         caixa = QWidget()
@@ -189,7 +188,6 @@ class AuthEditor(QWidget):
         layout.addStretch(1)
         return caixa
 
-    # ------------------------------------------------------------------ dados
 
     def _carregar(self) -> None:
         config = self.dono.get("auth") or {}
@@ -268,7 +266,6 @@ class AuthEditor(QWidget):
             self.resumo.setText(f"vai sair como {aplicada.detalhe}")
             self.resumo.setStyleSheet(f"color: {theme.FAINT}; font-size: 8pt;")
 
-    # --------------------------------------------------------------- publico
 
     def set_variables(self, variaveis: dict) -> None:
         from ..core import scopes

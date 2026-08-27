@@ -61,7 +61,6 @@ class AbaBar(QTabBar):
         self._sob_x = False
         self._pressionado = -1
 
-    # ------------------------------------------------------------- medidas
 
     def _pagina(self, index: int):
         pai = self.parent()
@@ -91,7 +90,6 @@ class AbaBar(QTabBar):
         r = self.tabRect(index)
         return QRectF(r.right() - MARGEM - ZONA_X, r.center().y() - 8.5, ZONA_X, 17.0)
 
-    # -------------------------------------------------------------- pintura
 
     def paintEvent(self, evento):  # noqa: N802
         painter = QPainter(self)
@@ -214,7 +212,6 @@ class AbaBar(QTabBar):
         painter.restore()
         return x + raio * 2
 
-    # ------------------------------------------------------------ interacao
 
     def _no_x(self, index: int, ponto) -> bool:
         return index >= 0 and self._caixa_x(index).adjusted(-3, -3, 3, 3).contains(ponto)

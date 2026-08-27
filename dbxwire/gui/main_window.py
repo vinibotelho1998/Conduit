@@ -174,7 +174,6 @@ class MainWindow(QMainWindow):
 
         self._load_registry()
 
-    # ---------------------------------------------------------------- layout
 
     def _build_toolbar(self) -> None:
         bar = QToolBar()
@@ -473,7 +472,6 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage("pronto")
 
-    # -------------------------------------------------------------- console
 
     def alternar_console(self, mostrar: bool | None = None) -> None:
         if mostrar is None:
@@ -493,7 +491,6 @@ class MainWindow(QMainWindow):
         if segundos:
             self.statusBar().showMessage(mensagem, segundos * 1000)
 
-    # ------------------------------------------------------------ workspaces
 
     def _load_registry(self) -> None:
         registry = ws.list_workspaces()
@@ -612,7 +609,6 @@ class MainWindow(QMainWindow):
         if self.workspace_id:
             os.startfile(ws.get_workspace(self.workspace_id)["path"])  # noqa: S606
 
-    # ------------------------------------------------------------- ambientes
 
     def _reload_envs(self) -> None:
         self.env_combo.blockSignals(True)
@@ -929,7 +925,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, "btn_peek"):
             self.btn_peek.setText(f"{len(mapa)} vars")
 
-    # ------------------------------------------------------------------ abas
 
     def open_request(self, node: dict) -> None:
         node_id = node.get("id")
@@ -974,7 +969,6 @@ class MainWindow(QMainWindow):
         self._sync_tabs_visibility()
         self._refresh_var_hints()
 
-    # ------------------------------------------------- rascunho e salvamento
 
     def _sujo(self, editor: RequestEditor) -> bool:
         real = getattr(editor, "no_real", None)
@@ -1132,7 +1126,6 @@ class MainWindow(QMainWindow):
         self._guardar_rascunhos()
         self.statusBar().showMessage("alteracoes descartadas", 3000)
 
-    # ------------------------------------------------------- fechar as abas
 
     def pedir_fechar(self, index: int) -> None:
         if self._confirmar_fechar(index):
@@ -1205,7 +1198,6 @@ class MainWindow(QMainWindow):
         self._guardar_rascunhos()
         self._sync_tabs_visibility()
 
-    # ------------------------------------------------------------- ambientes
 
     def _env_por_id(self, env_id: str) -> dict | None:
         for env in self.tree_data.get("environments") or []:
@@ -1362,7 +1354,6 @@ class MainWindow(QMainWindow):
                 return editor.request
         return None
 
-    # --------------------------------------------------------------- arvore
 
     def new_collection(self) -> None:
         name, ok = QInputDialog.getText(self, "Nova collection", "Nome da collection")
@@ -1491,7 +1482,6 @@ class MainWindow(QMainWindow):
             self.close_tab(self.tabs.indexOf(editor))
         self.tree_panel.remove(node)
 
-    # ---------------------------------------------------------------- envio
 
     def focus_url(self) -> None:
         widget = self.tabs.currentWidget()
@@ -1602,7 +1592,6 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(result.get("error") or "falhou", 8000)
 
-    # --------------------------------------------------------------- navegacao
 
     def _passo_aba(self, passo: int) -> None:
         total = self.tabs.count()
@@ -1888,7 +1877,6 @@ class MainWindow(QMainWindow):
             recado += f".  Ficou de fora: {', '.join(dados.ignorados)}"
         self.statusBar().showMessage(recado, 9000)
 
-    # ------------------------------------------------------------- exemplos
 
     def _aba_e_no(self) -> tuple:
         """A aba de request aberta e o item de verdade dela, ou (None, None)."""
@@ -1982,7 +1970,6 @@ class MainWindow(QMainWindow):
         self.tree_panel.refresh()
         self.mark_dirty()
 
-    # ----------------------------------------------------------- codigo pronto
 
     def copiar_curl(self, node: dict | None = None) -> None:
         """Poe na area de transferencia o curl equivalente ao request.
@@ -2067,7 +2054,6 @@ class MainWindow(QMainWindow):
         ) + "</table>"
         QMessageBox.information(self, "Atalhos de teclado", corpo)
 
-    # ------------------------------------------------------------- historico
 
     def show_history_response(self, entry: dict) -> None:
         """Mostra a resposta gravada no mesmo viewer, sem reenviar nada."""
@@ -2203,7 +2189,6 @@ class MainWindow(QMainWindow):
             self.history_panel.reload()
             self.statusBar().showMessage("historico limpo", 4000)
 
-    # ------------------------------------------------------------ salvamento
 
     def mark_dirty(self) -> None:
         self.statusBar().showMessage("alterado")
@@ -2271,7 +2256,6 @@ class MainWindow(QMainWindow):
             self.history.close()
         super().closeEvent(event)
 
-    # ------------------------------------------------------------------ sobre
 
     def show_about(self) -> None:
         from .icon import render

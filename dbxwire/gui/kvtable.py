@@ -23,7 +23,6 @@ from .controles import BotaoApagar, Marcador
 from .highlight import VAR_PY, cor_da_variavel
 
 
-
 def _centrado(widget: QWidget) -> QWidget:
     """Poe o controle no meio da celula sem pintar fundo por cima da linha escolhida."""
     wrap = QWidget()
@@ -277,7 +276,6 @@ class KvTable(QWidget):
 
         self.reload()
 
-    # ------------------------------------------------------------------ dados
 
     def repintar(self) -> None:
         self.table.viewport().update()
@@ -344,7 +342,6 @@ class KvTable(QWidget):
         if not ghost:
             self.table.setCellWidget(index, self.col_del, self._botao_apagar(data))
 
-    # ----------------------------------------------------------------- eventos
 
     def _toggle(self, data: dict, state: int) -> None:
         data["enabled"] = state == Qt.CheckState.Checked.value

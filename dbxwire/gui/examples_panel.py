@@ -63,7 +63,6 @@ class ExamplesPanel(QWidget):
         self.tabela.hide()
         raiz.addWidget(self.tabela, 1)
 
-    # ------------------------------------------------------------------ dados
 
     def definir(self, exemplos: list | None) -> None:
         # import aqui dentro porque o painel de resposta importa o editor de request, e

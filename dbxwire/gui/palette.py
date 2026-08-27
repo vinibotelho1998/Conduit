@@ -110,7 +110,6 @@ class Palette(QDialog):
         self.escolhido: PaletteItem | None = None
         self._filtrar("")
 
-    # ----------------------------------------------------------------- lista
 
     def _filtrar(self, consulta: str) -> None:
         pontuados = []
@@ -150,7 +149,6 @@ class Palette(QDialog):
         self.escolhido = atual.data(Qt.ItemDataRole.UserRole)
         self.accept()
 
-    # ---------------------------------------------------------------- teclas
 
     def keyPressEvent(self, event):  # noqa: N802
         tecla = event.key()
@@ -171,7 +169,6 @@ class Palette(QDialog):
             return
         super().keyPressEvent(event)
 
-    # ------------------------------------------------------------- utilidade
 
     @staticmethod
     def escolher(itens: list[PaletteItem], titulo: str, parent=None) -> PaletteItem | None:

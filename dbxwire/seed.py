@@ -71,9 +71,6 @@ def json_body(raw: str) -> dict:
     return {"mode": "json", "raw": raw}
 
 
-# --------------------------------------------------------------------- BrasilAPI
-
-
 def _brasilapi() -> dict:
     base = "{{brasilApi}}"
     return collection(
@@ -181,9 +178,6 @@ def _brasilapi() -> dict:
     )
 
 
-# ---------------------------------------------------------------------- ViaCEP
-
-
 def _viacep() -> dict:
     return collection(
         "ViaCEP",
@@ -202,9 +196,6 @@ def _viacep() -> dict:
             ),
         ],
     )
-
-
-# --------------------------------------------------------------- JSONPlaceholder
 
 
 def _jsonplaceholder() -> dict:
@@ -241,9 +232,6 @@ def _jsonplaceholder() -> dict:
     )
 
 
-# ---------------------------------------------------------------------- GitHub
-
-
 def _github() -> dict:
     base = "{{githubApi}}"
     headers = [kv("Accept", "application/vnd.github+json")]
@@ -277,9 +265,6 @@ def _github() -> dict:
     )
 
 
-# ------------------------------------------------------------------- Open-Meteo
-
-
 def _clima() -> dict:
     return collection(
         "Open-Meteo, clima",
@@ -304,9 +289,6 @@ def _clima() -> dict:
             ),
         ],
     )
-
-
-# ------------------------------------------------------------------- laboratorio
 
 
 def _laboratorio() -> dict:
@@ -388,9 +370,6 @@ def _laboratorio() -> dict:
             ),
         ],
     )
-
-
-# --------------------------------------------------------------------- montagem
 
 
 def examples_tree() -> dict:

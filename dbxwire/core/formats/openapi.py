@@ -54,9 +54,6 @@ def detectar(caminho: Path) -> float:
     return 0.0
 
 
-# ----------------------------------------------------------------- importacao
-
-
 def _exemplo_de_esquema(esquema: dict, profundidade: int = 0) -> object:
     """Inventa um corpo de exemplo a partir do esquema, pra o request nascer utilizavel."""
     if not isinstance(esquema, dict) or profundidade > 6:
@@ -271,9 +268,6 @@ def importar(caminho: Path) -> Resultado:
         "esquema de resposta, exemplos nomeados e seguranca por operacao nao viraram request"
     )
     return resultado
-
-
-# ------------------------------------------------------------------ exportacao
 
 
 def exportar(tree: dict, colecoes: list, destino: Path, com_segredo: bool = False) -> Path:

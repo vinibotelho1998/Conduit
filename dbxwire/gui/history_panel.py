@@ -129,7 +129,6 @@ class HistoryPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ------------------------------------------------------------ filtros
         head = QWidget()
         head_layout = QVBoxLayout(head)
         head_layout.setContentsMargins(8, 8, 8, 6)
@@ -160,7 +159,6 @@ class HistoryPanel(QWidget):
 
         root.addWidget(head)
 
-        # ------------------------------------------------------------- tabela
         self.table = QTableWidget(0, 2)
         self.table.horizontalHeader().setVisible(False)
         self.table.verticalHeader().setVisible(False)
@@ -180,7 +178,6 @@ class HistoryPanel(QWidget):
         self.table.customContextMenuRequested.connect(self._menu)
         root.addWidget(self.table, 1)
 
-        # ------------------------------------------------------------- rodape
         foot = QWidget()
         foot_layout = QHBoxLayout(foot)
         foot_layout.setContentsMargins(8, 4, 8, 8)
@@ -205,7 +202,6 @@ class HistoryPanel(QWidget):
             foot_layout.addWidget(btn)
         root.addWidget(foot)
 
-    # ------------------------------------------------------------------ dados
 
     def set_history(self, history: History | None) -> None:
         self.history = history
@@ -273,7 +269,6 @@ class HistoryPanel(QWidget):
             f"{len(rows)} de {stats['total']} execucoes   |   {stats['falhas']} falhas"
         )
 
-    # --------------------------------------------------------------- selecao
 
     def selected_id(self) -> str | None:
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []

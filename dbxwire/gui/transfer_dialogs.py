@@ -51,9 +51,6 @@ FORMATOS = [
 PAPEL_NODE = Qt.ItemDataRole.UserRole + 1
 
 
-# --------------------------------------------------------------------- pecas
-
-
 def titulo(texto: str, tamanho: float = 13.0) -> QLabel:
     rotulo = QLabel(texto)
     rotulo.setStyleSheet(f"font-size: {tamanho}pt; font-weight: 700;")
@@ -179,7 +176,6 @@ class AreaSolta(QFrame):
             else:
                 pilula.pintar(theme.FAINT)
 
-    # ----------------------------------------------------------- arrastar
 
     def dragEnterEvent(self, evento):  # noqa: N802
         if evento.mimeData().hasUrls():
@@ -260,9 +256,6 @@ class LinhaPrevia(QStyledItemDelegate):
         tamanho = super().sizeHint(option, index)
         tamanho.setHeight(25)
         return tamanho
-
-
-# ------------------------------------------------------------------ importar
 
 
 class ImportDialog(QDialog):
@@ -359,7 +352,6 @@ class ImportDialog(QDialog):
         self.botoes.rejected.connect(self.reject)
         raiz.addWidget(self.botoes)
 
-    # ------------------------------------------------------------------ fluxo
 
     def _voltar(self) -> None:
         self.resultado = None
@@ -444,9 +436,6 @@ class ImportDialog(QDialog):
             if node.get("type") != "request":
                 self._preencher(filho, node.get("items") or [])
             pai.addChild(filho)
-
-
-# ------------------------------------------------------------------ exportar
 
 
 class CartaoFormato(QFrame):
@@ -589,7 +578,6 @@ class ExportDialog(QDialog):
         self._atualizar_contagem()
         self._aviso_segredo()
 
-    # ------------------------------------------------------------------ apoio
 
     @staticmethod
     def _contar(colecao: dict) -> int:
