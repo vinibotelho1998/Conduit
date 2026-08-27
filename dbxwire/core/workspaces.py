@@ -47,9 +47,8 @@ REGISTRY = ROOT / "workspaces.json"
 
 COLORS = ["#4da3ff", "#49cc90", "#fca130", "#c084fc", "#f93e3e", "#50e3c2"]
 
-# O que nunca pode ir pro git de um workspace compartilhado. Ver secao 5.3 do PLANO.md:
-# o environment versionado carrega o contrato, os nomes das variaveis, e o valor secreto
-# fica no cofre local.
+# O que nunca pode ir pro git de um workspace compartilhado: o environment versionado
+# carrega o contrato, os nomes das variaveis, e o valor secreto fica no cofre local.
 GITIGNORE = """# gerado pelo DBX Wire
 .secrets/
 certs/

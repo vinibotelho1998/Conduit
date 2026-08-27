@@ -1,6 +1,6 @@
 """Resolucao de {{variavel}} com ledger de segredo.
 
-O ledger e o mecanismo central da secao 5.4 do PLANO.md: alem do texto resolvido,
+O ledger e o mecanismo central de seguranca do modulo: alem do texto resolvido,
 devolve quais trechos vieram de variavel marcada como secreta. Historico, log e
 prompt de IA usam esse ledger pra desresolver o segredo antes de gravar.
 """

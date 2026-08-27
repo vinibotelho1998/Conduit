@@ -10,8 +10,8 @@ terminal com grep quando o app nem estiver aberto. O SQLite responde busca por t
 por status, por periodo e por id de correlacao sem varrer arquivo. Se o indice sumir,
 ele e reconstruido a partir do log, que e o unico dado que importa.
 
-Regra de segredo, secao 5.4 do PLANO.md: o que entra aqui ja passou pelo redator. O
-valor real de variavel secreta e trocado de volta pelo {{nome}} antes de gravar.
+Regra de segredo: o que entra aqui ja passou pelo redator. O valor real de variavel
+secreta e trocado de volta pelo {{nome}} antes de gravar.
 """
 
 from __future__ import annotations
@@ -305,7 +305,7 @@ class History:
 
 
     def purge(self, body_days: int = 7, meta_days: int = 90) -> dict:
-        """Corpo some rapido, metadado fica mais tempo. Ver secao 5 do PLANO.md."""
+        """Corpo some rapido, metadado fica mais tempo."""
         removed_files = 0
         limit_day = (datetime.now() - timedelta(days=body_days)).strftime("%Y-%m-%d")
         for path in self.dir.glob("*.jsonl"):

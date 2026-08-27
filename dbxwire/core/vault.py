@@ -1,4 +1,4 @@
-"""Cofre de segredos do workspace, conforme a secao 5.2 do PLANO.md.
+"""Cofre de segredos do workspace.
 
 Modelo de envelope. Uma chave de conteudo aleatoria de 32 bytes cifra o cofre em
 AES-256-GCM. Essa chave e que fica protegida, e o provedor de protecao e trocavel:
