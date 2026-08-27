@@ -4,3 +4,7 @@ __pycache__/
 venv/
 .pytest_cache/
 *.tmp
+
+# Build / dist (PyInstaller, Inno Setup)
+/build/
+/dist/
