@@ -56,6 +56,9 @@ num header conhecido, e o basic ainda embaralha usuario e senha em base64.
 ```
 dbxwire/core/    modelo, motor de envio, storage, cofre, historico, formatos
 dbxwire/gui/     janela, arvore, editor, resposta, dialogos
-PLANO.md        decisoes de projeto e o que ainda falta
-CHANGELOG.md    o que mudou em cada versao
+CHANGELOG.md     o que mudou em cada versao
 ```
+
+## Licença
+
+Distribuído sob a [licença MIT](LICENSE).
