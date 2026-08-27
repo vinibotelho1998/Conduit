@@ -1,9 +1,19 @@
 # DBX Wire
 
+[![Build](https://github.com/vinibotelho1998/dbx-wire/actions/workflows/release.yml/badge.svg)](https://github.com/vinibotelho1998/dbx-wire/actions/workflows/release.yml)
+![Python](https://img.shields.io/badge/python-3.13%2B-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Cliente de API de mesa, feito do zero em Python com PySide6. Nada sai da maquina sem
 voce mandar: nao existe conta, nao existe nuvem e nao existe telemetria.
 
-## Como rodar
+## Instalação
+
+Baixe o **DBXWire-Setup.exe** da [última release](https://github.com/vinibotelho1998/dbx-wire/releases/latest),
+execute e pronto. Não precisa de Python nem do repositório.
+
+## Rodar a partir do código-fonte
 
 Precisa de Python 3.13 ou mais novo.
 
