@@ -997,7 +997,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabToolTip(index, dica)
 
     def _guardar_rascunhos(self) -> None:
-        """Grava as copias em aberto em .dbxman, que fica fora do git.
+        """Grava as copias em aberto em .dbxwire, que fica fora do git.
 
         Sem isso, fechar o app com aba alterada perderia a alteracao. Com isso o
         rascunho volta na proxima abertura e continua marcado como nao salvo.
@@ -1010,7 +1010,7 @@ class MainWindow(QMainWindow):
         if not self.workspace_id:
             return
         try:
-            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxman"
+            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxwire"
             raiz.mkdir(exist_ok=True)
             alvo = raiz / "rascunhos.json"
             if atual:
@@ -1024,14 +1024,14 @@ class MainWindow(QMainWindow):
         if not self.workspace_id:
             return None
         try:
-            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxman"
+            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxwire"
         except KeyError:
             return None
         raiz.mkdir(exist_ok=True)
         return raiz / "janela.json"
 
     def _guardar_janela(self) -> None:
-        """Grava a largura das colunas em .dbxman, que fica fora do git."""
+        """Grava a largura das colunas em .dbxwire, que fica fora do git."""
         alvo = self._caminho_janela()
         if alvo is None:
             return
@@ -1060,7 +1060,7 @@ class MainWindow(QMainWindow):
         if not self.workspace_id:
             return {}
         try:
-            alvo = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxman" / "rascunhos.json"
+            alvo = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxwire" / "rascunhos.json"
             if alvo.exists():
                 return json.loads(alvo.read_text(encoding="utf-8"))
         except (OSError, KeyError, json.JSONDecodeError):
@@ -2225,14 +2225,14 @@ class MainWindow(QMainWindow):
             quantos = len(conflitos)
             self.statusBar().showMessage(
                 f"salvo, mas {quantos} arquivo(s) tinham mudado por fora. "
-                f"Copia guardada em .dbxman/conflitos", 12000
+                f"Copia guardada em .dbxwire/conflitos", 12000
             )
             QMessageBox.warning(
                 self,
                 "Alteracao vinda de fora",
                 f"{quantos} arquivo(s) deste workspace mudaram fora do app desde que ele foi "
                 f"aberto, e acabaram de ser sobrescritos.\n\n"
-                f"Uma copia do que estava no disco ficou em .dbxman/conflitos, dentro da pasta "
+                f"Uma copia do que estava no disco ficou em .dbxwire/conflitos, dentro da pasta "
                 f"do workspace.\n\n"
                 + "\n".join(conflitos[:10]),
             )

@@ -1,4 +1,4 @@
-"""Ponto de entrada: python -m dbxman"""
+"""Ponto de entrada: python -m dbxwire"""
 
 from __future__ import annotations
 

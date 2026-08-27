@@ -10,7 +10,7 @@ Precisa de Python 3.13 ou mais novo.
 ```
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python -m dbxman
+.venv\Scripts\python -m dbxwire
 ```
 
 ## O que ele faz
@@ -54,8 +54,8 @@ num header conhecido, e o basic ainda embaralha usuario e senha em base64.
 ## Estrutura
 
 ```
-dbxman/core/    modelo, motor de envio, storage, cofre, historico, formatos
-dbxman/gui/     janela, arvore, editor, resposta, dialogos
+dbxwire/core/    modelo, motor de envio, storage, cofre, historico, formatos
+dbxwire/gui/     janela, arvore, editor, resposta, dialogos
 PLANO.md        decisoes de projeto e o que ainda falta
 CHANGELOG.md    o que mudou em cada versao
 ```

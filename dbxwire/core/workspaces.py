@@ -27,7 +27,7 @@ def _raiz_de_dados() -> Path:
     Se a antiga existir e a nova nao, move de uma vez. Deixar as duas seria pior:
     o app leria de uma e o usuario procuraria na outra.
     """
-    definido = os.environ.get("DBXMAN_HOME")
+    definido = os.environ.get("DBXWIRE_HOME")
     if definido:
         return Path(definido)
 
@@ -56,7 +56,7 @@ certs/
 history/
 cookies/
 ai-log/
-.dbxman/
+.dbxwire/
 tree.json.migrado
 *.tmp
 """
@@ -74,7 +74,7 @@ def _now() -> str:
 
 def ensure_root() -> None:
     WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
-    (ROOT / ".dbxman").mkdir(exist_ok=True)
+    (ROOT / ".dbxwire").mkdir(exist_ok=True)
     if not REGISTRY.exists():
         _write_registry({"schemaVersion": 1, "active": None, "workspaces": []})
 

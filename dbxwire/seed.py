@@ -317,7 +317,7 @@ def _laboratorio() -> dict:
             folder(
                 "basico",
                 items=[
-                    req("GET com query", "GET", f"{base}/get", params=[kv("uf", "MT"), kv("origem", "dbxman")]),
+                    req("GET com query", "GET", f"{base}/get", params=[kv("uf", "MT"), kv("origem", "dbxwire")]),
                     req(
                         "POST JSON",
                         "POST",
