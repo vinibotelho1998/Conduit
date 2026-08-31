@@ -72,8 +72,11 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Abrir o {#MyAppName} agora"; Fl
 Type: filesandordirs; Name: "{app}\_internal\__pycache__"
 
 [Code]
-; Dados ficam em %USERPROFILE%\Dbx-Wire, fora da pasta de instalacao, entao
-; desinstalar nunca apaga workspace nem cofre de segredos sem perguntar.
+// Comentario aqui dentro e' com duas barras, e nao com ponto e virgula: o [Code] e'
+// Pascal Script, e o ; so' comenta nas outras secoes do .iss.
+//
+// Dados ficam em %USERPROFILE%\Dbx-Wire, fora da pasta de instalacao, entao
+// desinstalar nunca apaga workspace nem cofre de segredos sem perguntar.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Dados: string;
