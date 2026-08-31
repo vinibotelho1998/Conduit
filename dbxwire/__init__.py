@@ -8,7 +8,7 @@ sai reto, dispara no pico, e volta ao normal quando a resposta chega.
 APP_NAME = "Dbx Wire"
 APP_ID = "dbxwire.app"
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
 VERSION_DATE = "2026-08-24"
 
 # Fases entregues ate aqui, mostradas na janela Sobre.
