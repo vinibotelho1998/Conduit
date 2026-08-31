@@ -69,7 +69,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Na primeira release nao existe 'latest' pra apagar, e o gh sai com codigo
+          # diferente de zero nesse caso. Aqui isso mata a etapa, porque o Actions roda
+          # com $ErrorActionPreference = 'stop' e o pwsh 7.4 trata saida de programa
+          # externo como erro. Entao o apagar corre solto e o codigo dele e' descartado.
+          $ErrorActionPreference = 'Continue'
           gh release delete latest --cleanup-tag --yes 2>$null
+          $ErrorActionPreference = 'Stop'
+
           gh release create latest "dist/DbxWire-Setup.exe" `
             --title "Dbx Wire v${{ steps.versao.outputs.numero }}" `
             --notes "Instalador gerado automaticamente do commit ${{ github.sha }} (versao ${{ steps.versao.outputs.numero }})." `
