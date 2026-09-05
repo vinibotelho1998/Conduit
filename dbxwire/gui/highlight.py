@@ -11,7 +11,7 @@ import html
 import re
 import weakref
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRegularExpression, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QRegularExpression
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat, QTextCursor
 
 from ..core.scopes import SCOPE_LABEL
@@ -80,12 +80,21 @@ def montar_regras() -> None:
 
     c = theme.CODIGO
 
+    # A ordem aqui e o que decide a cor, e nao a intencao: setFormat pinta por cima do
+    # que ja estava, entao a ultima regra que casa e a que fica valendo. Do mais geral
+    # pro mais especifico.
+    #
+    # Duas coisas que estavam erradas desde sempre por causa disso. A regra de chave
+    # vinha antes da regra de string, e toda chave e uma string: a cor de chave era
+    # calculada e jogada fora, entao chave e valor sempre sairam do mesmo verde. E a
+    # regra de numero vinha depois da de string, entao os digitos dentro de um texto
+    # eram pintados como numero, e "01001000" aparecia metade verde e metade ambar.
     JSON_RULES[:] = [
-        (QRegularExpression(r'"(?:[^"\\]|\\.)*"\s*(?=:)'), _fmt(c["chave"])),
-        (QRegularExpression(r'"(?:[^"\\]|\\.)*"'), _fmt(c["texto"])),
+        (QRegularExpression(r"[\{\}\[\]:,]"), _fmt(c["sinal"])),
         (QRegularExpression(r"\b-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b"), _fmt(c["numero"])),
         (QRegularExpression(r"\b(?:true|false|null)\b"), _fmt(c["palavra"])),
-        (QRegularExpression(r"[\{\}\[\]:,]"), _fmt(c["sinal"])),
+        (QRegularExpression(r'"(?:[^"\\]|\\.)*"'), _fmt(c["texto"])),
+        (QRegularExpression(r'"(?:[^"\\]|\\.)*"\s*(?=:)'), _fmt(c["chave"])),
     ]
 
     XML_RULES[:] = [
