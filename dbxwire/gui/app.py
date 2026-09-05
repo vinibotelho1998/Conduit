@@ -29,10 +29,14 @@ def main() -> int:
     ws.ensure_root()
     seed()
 
+    preferencias = ws.read_preferences()
+
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("Conduit")
     app.setStyle("Fusion")
+    theme.aplicar(None, preferencias.get("tema"), preferencias.get("densidade"))
+    app.setPalette(theme.paleta_qt())
     app.setStyleSheet(theme.folha())
     app.setWindowIcon(app_icon())
 

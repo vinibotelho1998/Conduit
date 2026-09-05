@@ -296,3 +296,31 @@ def write_tree(wid: str, tree: dict, anterior: dict | None = None) -> dict:
 def new_id(prefix: str = "id") -> str:
     """Id curto e estavel para item de arvore."""
     return f"{prefix}-{secrets.token_hex(4)}"
+
+
+PREFERENCES = ROOT / "preferencias.json"
+PREFERENCES_PADRAO = {"tema": "escuro", "densidade": "confortavel"}
+
+
+def read_preferences() -> dict:
+    """Tema e densidade, guardados fora de qualquer workspace: sao do app, nao do
+    projeto. Sem arquivo ainda, volta o padrao sem criar nada no disco."""
+    if not PREFERENCES.exists():
+        return dict(PREFERENCES_PADRAO)
+    try:
+        dados = json.loads(PREFERENCES.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(PREFERENCES_PADRAO)
+    saida = dict(PREFERENCES_PADRAO)
+    saida.update({k: v for k, v in dados.items() if k in PREFERENCES_PADRAO})
+    return saida
+
+
+def write_preferences(**mudancas) -> dict:
+    atuais = read_preferences()
+    atuais.update({k: v for k, v in mudancas.items() if k in PREFERENCES_PADRAO})
+    ROOT.mkdir(parents=True, exist_ok=True)
+    tmp = PREFERENCES.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(atuais, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(PREFERENCES)
+    return atuais
