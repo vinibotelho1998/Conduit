@@ -20,7 +20,6 @@ from . import theme
 from . import icons
 from .icons import collection_icon, folder_icon, method_icon
 from .tree_delegate import (
-    ALTURA_LINHA,
     RECUO,
     TreeDelegate,
     cor_da_linha,
@@ -61,11 +60,12 @@ class DropTree(QTreeWidget):
                 event.ignore()
                 return
 
-        # nada entra dentro de um request
+        # nada entra dentro de um request ou de um exemplo: os dois sao ponta da arvore,
+        # nenhum guarda lista de filhos de verdade no modelo de dados
         if (
             alvo is not None
             and posicao == QTreeWidget.DropIndicatorPosition.OnItem
-            and self._tipo(alvo) == "request"
+            and self._tipo(alvo) in ("request", "example")
         ):
             event.ignore()
             return
@@ -78,7 +78,11 @@ class DropTree(QTreeWidget):
                 return
             if posicao != QTreeWidget.DropIndicatorPosition.OnItem:
                 pai = alvo.parent()
-                if pai is None:
+                # cair como irmao de um exemplo poe o item dentro do request dono do
+                # exemplo. rebuild_from_widget nao le filho de request nenhum, entao o
+                # item largado ali sumia da arvore de dados sem aviso nem desfazer. So
+                # exemplo tem pai do tipo request, entao barrar isso tambem cobre o caso.
+                if pai is None or self._tipo(pai) == "request":
                     event.ignore()
                     return
 
@@ -171,6 +175,12 @@ class TreePanel(QWidget):
     curl_pedido = Signal(dict)
     codigo_pedido = Signal(dict)
     abrir_pedido = Signal(dict)
+    # a arvore nao decide excluir sozinha: quem confirma, fecha a aba aberta e avisa o
+    # editor e a janela, que tem o contexto todo. Excluir direto daqui, sem passar por
+    # ela, deixava a aba do request excluido apontando pro vazio e apagava exemplo sem
+    # perguntar.
+    exclusao_pedida = Signal(dict)
+    exemplo_exclusao_pedida = Signal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -491,7 +501,7 @@ class TreePanel(QWidget):
             menu.addAction("Abrir", lambda: self.exemplo_aberto.emit(node))
             menu.addAction("Renomear", lambda: self.rename(node))
             menu.addSeparator()
-            menu.addAction("Excluir exemplo", lambda: self.excluir_exemplo(node))
+            menu.addAction("Excluir exemplo", lambda: self.exemplo_exclusao_pedida.emit(node))
             menu.exec(self.tree.viewport().mapToGlobal(pos))
             return
 
@@ -516,7 +526,7 @@ class TreePanel(QWidget):
             menu.addAction("Renomear", lambda: self.rename(node))
             menu.addAction("Duplicar", lambda: self.duplicate(node))
             menu.addSeparator()
-            menu.addAction("Excluir", lambda: self.remove(node))
+            menu.addAction("Excluir", lambda: self.exclusao_pedida.emit(node))
         else:
             menu.addAction("Nova collection", self.btn_new.click)
 
@@ -613,15 +623,6 @@ class TreePanel(QWidget):
         if item:
             self.tree.setCurrentItem(item)
             self.tree.editItem(item, 0)
-
-    def excluir_exemplo(self, involucro: dict) -> None:
-        pai = involucro.get("_pai") or {}
-        alvo = involucro.get("_exemplo") or {}
-        pai["examples"] = [
-            item for item in pai.get("examples") or [] if item.get("id") != alvo.get("id")
-        ]
-        self.refresh()
-        self.tree_changed.emit()
 
     def expandir(self, node_id: str | None) -> None:
         item = self._item_by_id(node_id)

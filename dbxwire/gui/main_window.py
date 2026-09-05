@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -226,21 +227,21 @@ class MainWindow(QMainWindow):
         self.tree_panel = TreePanel()
         self.tree_panel.request_opened.connect(self.open_request)
         self.tree_panel.tree_changed.connect(self.mark_dirty)
-        self.tree_panel.menu_novo.addAction(
-            self._action("Nova collection", self.new_collection, "Ctrl+Shift+N")
-        )
-        self.tree_panel.menu_novo.addAction(
-            self._action("Nova pasta", self.new_folder, "Ctrl+Alt+N")
-        )
-        self.tree_panel.menu_novo.addAction(
-            self._action("Novo request", self.new_request, "Ctrl+N")
-        )
+        # Sem atalho aqui de proposito: o menu Arquivo e o Editar ja tem Ctrl+Shift+N,
+        # Ctrl+Alt+N e Ctrl+N nestas mesmas tres acoes. Repetir o mesmo atalho numa
+        # segunda QAction faz o Qt marcar as duas como ambiguas, e nenhuma das duas
+        # dispara mais pelo teclado, so pelo clique. Aqui o botao + ja e clique.
+        self.tree_panel.menu_novo.addAction(self._action("Nova collection", self.new_collection))
+        self.tree_panel.menu_novo.addAction(self._action("Nova pasta", self.new_folder))
+        self.tree_panel.menu_novo.addAction(self._action("Novo request", self.new_request))
         self.tree_panel.favorito_mudou.connect(lambda: self.fav_panel.refresh())
         self.tree_panel.ordem_aplicada.connect(self._aplicar_ordem)
         self.tree_panel.auth_pedida.connect(self.editar_auth_do_grupo)
         self.tree_panel.exemplo_aberto.connect(self._exemplo_da_arvore)
         self.tree_panel.curl_pedido.connect(self.copiar_curl)
         self.tree_panel.codigo_pedido.connect(self._codigo_do_no)
+        self.tree_panel.exclusao_pedida.connect(self._excluir_no)
+        self.tree_panel.exemplo_exclusao_pedida.connect(self._excluir_exemplo_da_arvore)
 
         self.history_panel = HistoryPanel()
         self.history_panel.replay_requested.connect(self.replay_entry)
@@ -363,25 +364,51 @@ class MainWindow(QMainWindow):
         editar.addSeparator()
         editar.addAction(self._action("Favoritar ou desfavoritar", self.toggle_favorite, "Ctrl+Shift+F"))
         editar.addSeparator()
-        editar.addAction(self._action("Buscar", lambda: self.search.setFocus(), QKeySequence.StandardKey.Find))
+        acao_buscar = self._action("Buscar", self._focar_busca, QKeySequence.StandardKey.Find)
+        # sem isso, Ctrl+F dentro da resposta virava atalho ambiguo com a busca na
+        # resposta, que tambem escuta Ctrl+F: nenhum dos dois disparava direito. Preso
+        # so a lateral, este so responde quando o foco esta ali.
+        acao_buscar.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.side.addAction(acao_buscar)
+        editar.addAction(acao_buscar)
         editar.addSeparator()
         editar.addAction(self._action("Variaveis", self.open_variables, "Ctrl+E"))
 
         ambientes = editar.addMenu("Ambientes")
-        ambientes.addAction(self._action("Novo ambiente", self.new_environment, "Ctrl+Shift+E"))
+        # Ctrl+Shift+E colidia com Exportar, no menu Arquivo: as duas acoes tinham o
+        # mesmo atalho, e o Qt nao dispara nenhuma quando duas ficam ambiguas assim
+        ambientes.addAction(self._action("Novo ambiente", self.new_environment, "Ctrl+Alt+E"))
         ambientes.addAction(
             self._action("Gerenciar ambientes", lambda: self.open_variables("Ambientes"))
         )
         ambientes.aboutToShow.connect(lambda: self._montar_menu_ambientes(ambientes))
+
+        ver = menu.addMenu("&Ver")
+        tema_menu = ver.addMenu("Tema")
+        self._acao_tema = {}
+        for valor, rotulo in (("escuro", "Escuro"), ("claro", "Claro")):
+            acao = QAction(rotulo, self, checkable=True)
+            acao.triggered.connect(lambda _=False, v=valor: self._trocar_tema(v))
+            tema_menu.addAction(acao)
+            self._acao_tema[valor] = acao
+        densidade_menu = ver.addMenu("Densidade")
+        self._acao_densidade = {}
+        for valor, rotulo in (("confortavel", "Confortavel"), ("compacta", "Compacta")):
+            acao = QAction(rotulo, self, checkable=True)
+            acao.triggered.connect(lambda _=False, v=valor: self._trocar_densidade(v))
+            densidade_menu.addAction(acao)
+            self._acao_densidade[valor] = acao
+        self._marcar_tema_no_menu()
+        ver.aboutToShow.connect(self._marcar_tema_no_menu)
 
         executar = menu.addMenu("E&xecutar")
         executar.addAction(self._action("Enviar", self.send_current, "Ctrl+Return"))
         executar.addAction(self._action("Focar na URL", self.focus_url, "Ctrl+L"))
         executar.addSeparator()
         executar.addAction(self._action("Gerar codigo", self.open_codegen, "Ctrl+G"))
-        executar.addAction(
-            self._action("Importar de curl", self.importar_curl, "Ctrl+Shift+V")
-        )
+        # sem atalho aqui: o menu Arquivo ja registra Ctrl+Shift+V nesta mesma acao, e
+        # duas QAction com o mesmo atalho ficam ambiguas pro Qt e nenhuma dispara mais
+        executar.addAction(self._action("Importar de curl", self.importar_curl))
         executar.addSeparator()
         executar.addAction(self._action("Certificados cliente", self.open_certs))
         executar.addAction(self._action("Cookies guardados", self.open_cookies))
@@ -402,7 +429,7 @@ class MainWindow(QMainWindow):
         ir.addAction(self._action("Mostrar ou esconder a lateral", self._alternar_lateral, "Ctrl+B"))
 
         historico = menu.addMenu("&Historico")
-        historico.addAction(self._action("Ver historico", lambda: self.side.setCurrentIndex(3), "Ctrl+H"))
+        historico.addAction(self._action("Ver historico", lambda: self._ir_para_lateral(3), "Ctrl+H"))
         historico.addAction(self._action("Reenviar a execucao selecionada", self.history_panel._replay))
         historico.addSeparator()
         historico.addAction(self._action("Reconstruir indice", self.rebuild_history_index))
@@ -451,7 +478,7 @@ class MainWindow(QMainWindow):
         barra.addWidget(self.btn_console)
 
         self.btn_historico_rodape = self._rodape_botao(
-            "Historico", "execucoes gravadas,  Ctrl+H", lambda: self.side.setCurrentIndex(3)
+            "Historico", "execucoes gravadas,  Ctrl+H", lambda: self._ir_para_lateral(3)
         )
         barra.addWidget(self.btn_historico_rodape)
 
@@ -491,6 +518,28 @@ class MainWindow(QMainWindow):
         if segundos:
             self.statusBar().showMessage(mensagem, segundos * 1000)
 
+    def _marcar_tema_no_menu(self) -> None:
+        for valor, acao in self._acao_tema.items():
+            acao.setChecked(valor == theme.NOME)
+        for valor, acao in self._acao_densidade.items():
+            acao.setChecked(valor == theme.DENSIDADE)
+
+    def _trocar_tema(self, nome: str) -> None:
+        if nome == theme.NOME:
+            return
+        theme.aplicar(QApplication.instance(), nome=nome)
+        ws.write_preferences(tema=nome)
+        self._marcar_tema_no_menu()
+        self.registrar(f"tema {nome}", "info", 3)
+
+    def _trocar_densidade(self, densidade: str) -> None:
+        if densidade == theme.DENSIDADE:
+            return
+        theme.aplicar(QApplication.instance(), densidade=densidade)
+        ws.write_preferences(densidade=densidade)
+        self._marcar_tema_no_menu()
+        self.registrar(f"densidade {densidade}", "info", 3)
+        self.registrar("reabra o Dbx Wire pra grade e arvore usarem a nova altura de linha por completo", "info", 6)
 
     def _load_registry(self) -> None:
         registry = ws.list_workspaces()
@@ -1371,14 +1420,28 @@ class MainWindow(QMainWindow):
         As abas abertas sao fechadas porque elas apontam pros dicionarios antigos, e
         depois de restaurar a foto esses objetos nao sao mais os que estao na arvore.
         """
+        if not self._foco_na_arvore():
+            return
         rotulo = self.tree_panel.pode_desfazer()
         if not rotulo:
             self.statusBar().showMessage("nada pra desfazer na arvore", 3000)
             return
 
-        for indice in reversed(range(self.tabs.count())):
-            if isinstance(self.tabs.widget(indice), RequestEditor):
-                self.close_tab(indice)
+        abertas = [
+            indice for indice in range(self.tabs.count())
+            if isinstance(self.tabs.widget(indice), RequestEditor)
+        ]
+        if abertas:
+            # _fechar_muitas pergunta por rascunho sem salvar em cada aba, do mesmo jeito
+            # que fechar a aba na mao. Fechar direto com close_tab, como era antes,
+            # descartava sem avisar qualquer edicao que estivesse aberta em outra aba,
+            # mesmo sem relacao nenhuma com o que esta sendo desfeito.
+            self._fechar_muitas(abertas)
+            if any(isinstance(self.tabs.widget(i), RequestEditor) for i in range(self.tabs.count())):
+                self.statusBar().showMessage(
+                    "desfazer cancelado: feche ou salve as abas de request primeiro", 5000
+                )
+                return
 
         self.tree_panel.desfazer()
         self.fav_panel.refresh()
@@ -1448,12 +1511,28 @@ class MainWindow(QMainWindow):
         self.tree_panel.tree.viewport().update()
         self.mark_dirty()
 
+    def _foco_na_arvore(self) -> bool:
+        """Se o teclado esta na arvore agora, ou em nada especifico dela.
+
+        F2, Del, Ctrl+D e Ctrl+Z sao atalhos de janela, entao disparam com o foco em
+        qualquer lugar, inclusive dentro da grade de Params ou Headers. Sem esta guarda,
+        clicar uma linha da grade e apertar Del apagava o item selecionado NA ARVORE,
+        que podia ser uma collection inteira sem relacao nenhuma com a linha clicada.
+        """
+        foco = QApplication.focusWidget()
+        arvore = self.tree_panel.tree
+        return foco is None or foco is arvore or arvore.isAncestorOf(foco)
+
     def rename_selected(self) -> None:
+        if not self._foco_na_arvore():
+            return
         node = self.tree_panel.current_node()
         if node:
             self.tree_panel.rename(node)
 
     def duplicate_selected(self) -> None:
+        if not self._foco_na_arvore():
+            return
         node = self.tree_panel.current_node()
         if node and node.get("type") == "example":
             self.statusBar().showMessage("exemplo nao duplica, so o request", 4000)
@@ -1462,9 +1541,28 @@ class MainWindow(QMainWindow):
             self.tree_panel.duplicate(node)
 
     def delete_selected(self) -> None:
-        node = self.tree_panel.current_node()
-        if not node:
+        if not self._foco_na_arvore():
             return
+        node = self.tree_panel.current_node()
+        if node:
+            self._excluir_no(node)
+
+    def _excluir_exemplo_da_arvore(self, involucro: dict) -> None:
+        """Botao direito, Excluir exemplo, na propria arvore.
+
+        Passa pela mesma confirmacao e pelo mesmo aviso ao editor aberto que o botao de
+        excluir do painel Exemplos ja usava. Excluir direto da arvore, sem isso, apagava
+        sem perguntar e deixava a aba do request com a contagem de exemplos desatualizada.
+        """
+        self.excluir_exemplo(involucro.get("_pai") or {}, involucro.get("_exemplo") or {})
+
+    def _excluir_no(self, node: dict) -> None:
+        """Confirma, fecha a aba se o request excluido estiver aberta, e so entao remove.
+
+        Usado tanto pelo Del do teclado quanto pelo Excluir do menu de contexto da
+        arvore: os dois caminhos precisam da mesma seguranca, senao o botao direito
+        apaga sem perguntar e deixa a aba aberta apontando pro que nao existe mais.
+        """
         if node.get("type") == "example":
             self.excluir_exemplo(node.get("_pai") or {}, node.get("_exemplo") or {})
             return
@@ -1477,16 +1575,41 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        editor = self.editors.get(node.get("id"))
-        if editor:
-            self.close_tab(self.tabs.indexOf(editor))
+        # exclui a aba de cada request que morre junto, nao so a do proprio no: apagar
+        # uma pasta ou collection inteira deixava aba orfa de tudo que estava dentro
+        for filho_id in self._ids_de_requests(node):
+            editor = self.editors.get(filho_id)
+            if editor:
+                self.close_tab(self.tabs.indexOf(editor))
         self.tree_panel.remove(node)
+
+    def _ids_de_requests(self, node: dict) -> list[str]:
+        if node.get("type") == "request":
+            return [node.get("id")]
+        saida = []
+        for filho in node.get("items") or []:
+            saida.extend(self._ids_de_requests(filho))
+        return saida
 
 
     def focus_url(self) -> None:
         widget = self.tabs.currentWidget()
         if isinstance(widget, RequestEditor):
             widget.focus_url()
+
+    def _focar_busca(self) -> None:
+        """Ctrl+F busca o que esta na frente, e nao sempre a arvore de collections.
+
+        Antes ele focava a busca da arvore mesmo com o Historico na tela: a pessoa
+        digitava e nada mudava, porque o campo que respondia estava numa aba escondida.
+        """
+        if self.side.isVisible() and self.side.currentIndex() == 3:  # Historico tem busca propria
+            self.history_panel.search.setFocus()
+            self.history_panel.search.selectAll()
+            return
+        self._ir_para_lateral(0)
+        self.search.setFocus()
+        self.search.selectAll()
 
     def send_current(self) -> None:
         node = self.current_node()
@@ -1605,6 +1728,17 @@ class MainWindow(QMainWindow):
     def _alternar_lateral(self) -> None:
         self.side.setVisible(not self.side.isVisible())
 
+    def _ir_para_lateral(self, indice: int) -> None:
+        """Mostra a lateral se estiver escondida e abre a aba pedida.
+
+        Ctrl+H e Ctrl+F trocavam a aba interna sem checar se a lateral inteira estava
+        escondida por Ctrl+B: a tecla parecia nao fazer nada, porque a troca acontecia
+        atras de um painel invisivel.
+        """
+        if not self.side.isVisible():
+            self.side.setVisible(True)
+        self.side.setCurrentIndex(indice)
+
     def _todos_requests(self) -> list[tuple[dict, str]]:
         saida = []
 
@@ -1650,7 +1784,7 @@ class MainWindow(QMainWindow):
             ("Exportar collections", "Ctrl+Shift+E", self.exportar_arquivo),
             ("Ir para request", "Ctrl+P", self.goto_request),
             ("Variaveis", "Ctrl+E", self.open_variables),
-            ("Ver historico", "Ctrl+H", lambda: self.side.setCurrentIndex(3)),
+            ("Ver historico", "Ctrl+H", lambda: self._ir_para_lateral(3)),
             ("Ver ambientes", "", lambda: self.side.setCurrentIndex(2)),
             ("Ver favoritos", "", lambda: self.side.setCurrentIndex(1)),
             ("Favoritar o request aberto", "Ctrl+Shift+F", self.toggle_favorite),
@@ -1667,7 +1801,7 @@ class MainWindow(QMainWindow):
             ("Salvar todos os requests abertos", "Ctrl+Shift+S", self.salvar_todas),
             ("Reverter o request aberto", "", self.reverter_aba),
             ("Abrir a pasta do workspace", "", self.open_workspace_folder),
-            ("Buscar na arvore", "Ctrl+F", lambda: self.search.setFocus()),
+            ("Buscar", "Ctrl+F", self._focar_busca),
             ("Focar na URL", "Ctrl+L", self.focus_url),
             ("Fechar a aba atual", "Ctrl+W", self.fechar_aba_atual),
             ("Mostrar ou esconder a lateral", "Ctrl+B", self._alternar_lateral),
@@ -2022,35 +2156,48 @@ class MainWindow(QMainWindow):
 
         CodegenDialog(construir, tem_segredo, self).exec()
 
+    def _atalhos_da_janela(self) -> list[tuple[str, str]]:
+        """Le o atalho de cada acao direto do menu, em vez de uma lista escrita a mao.
+
+        Existiam tres listas separadas: esta, a paleta de comandos e o texto de cada
+        item de menu. Toda vez que um atalho mudava, precisava lembrar de atualizar as
+        tres, e pelo menos esta ficava sempre pra tras. Lendo do proprio QMenu, a lista
+        nunca desatualiza: e o mesmo QAction que responde ao teclado.
+        """
+        vistos: set[str] = set()
+        linhas: list[tuple[str, str]] = []
+
+        def andar(menu: QMenu) -> None:
+            for acao in menu.actions():
+                submenu = acao.menu()
+                if submenu is not None:
+                    andar(submenu)
+                    continue
+                if acao.isSeparator() or not acao.text():
+                    continue
+                tecla = acao.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
+                if not tecla or tecla in vistos:
+                    continue
+                vistos.add(tecla)
+                rotulo = acao.text().replace("&", "").split("\t")[0]
+                linhas.append((tecla, rotulo.lower()))
+            return
+
+        for menu_acao in self.menuBar().actions():
+            submenu = menu_acao.menu()
+            if submenu is not None:
+                andar(submenu)
+
+        # Ctrl+1 a Ctrl+9 nascem num laco sem texto de menu, entao nao aparecem na
+        # varredura acima. Sao a unica excecao acrescentada a mao.
+        linhas.append(("Ctrl+1 ate Ctrl+9", "ir direto para a aba"))
+        return linhas
+
     def show_shortcuts(self) -> None:
-        linhas = [
-            ("Ctrl+P", "ir para qualquer request"),
-            ("Ctrl+K", "paleta de comandos"),
-            ("Ctrl+Enter", "enviar"),
-            ("Ctrl+G", "gerar codigo"),
-            ("Ctrl+Shift+C", "copiar como curl"),
-            ("Ctrl+E", "variaveis"),
-            ("Ctrl+H", "historico"),
-            ("Ctrl+L", "focar na url"),
-            ("Ctrl+F", "buscar na arvore"),
-            ("Ctrl+N", "novo request"),
-            ("Ctrl+Shift+N", "nova collection"),
-            ("Ctrl+D", "duplicar"),
-            ("F2", "renomear"),
-            ("Del", "excluir"),
-            ("Ctrl+S", "salvar o request aberto"),
-            ("Ctrl+Shift+S", "salvar todos os abertos"),
-            ("Ctrl+W", "fechar aba"),
-            ("Ctrl+Tab", "proxima aba"),
-            ("Ctrl+1 ate Ctrl+9", "ir direto para a aba"),
-            ("Ctrl+B", "mostrar ou esconder a lateral"),
-            ("Ctrl+`", "console"),
-            ("F1", "esta lista"),
-        ]
         corpo = "<table cellspacing='6'>" + "".join(
             f"<tr><td><b style='color:{theme.ACCENT};font-family:Consolas'>{tecla}</b></td>"
             f"<td style='color:{theme.TEXT}'>&nbsp;&nbsp;{texto}</td></tr>"
-            for tecla, texto in linhas
+            for tecla, texto in self._atalhos_da_janela()
         ) + "</table>"
         QMessageBox.information(self, "Atalhos de teclado", corpo)
 
