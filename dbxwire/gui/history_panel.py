@@ -47,11 +47,9 @@ STATUS_FILTROS = [
 
 
 def status_color(status, ok: bool) -> str:
-    if not ok:
-        return theme.ERR
     if not status:
         return theme.DIM
-    return {2: theme.OK, 3: "#61affe", 4: theme.WARN, 5: theme.ERR}.get(status // 100, theme.DIM)
+    return theme.cor_do_status(status, ok)
 
 
 class LinhaHistorico(QStyledItemDelegate):
@@ -62,7 +60,13 @@ class LinhaHistorico(QStyledItemDelegate):
     sobra espaco pro nome inteiro.
     """
 
-    ALTURA = 48
+    @staticmethod
+    def altura() -> int:
+        """Duas linhas de texto cabem em quase o dobro da linha de grade comum.
+
+        Metodo e nao constante, senao Densidade nunca alcancava esta lista.
+        """
+        return int(theme.medida("linha_grade") * 1.6)
 
     def paint(self, painter, option, index):
         dados = index.data(Qt.ItemDataRole.UserRole + 1)
@@ -71,10 +75,13 @@ class LinhaHistorico(QStyledItemDelegate):
             return
 
         painter.save()
+        # A mesma cor que a folha de estilo usa na coluna do metodo ao lado. Antes esta
+        # coluna pintava por conta propria em RAISE e PANEL2, e a linha selecionada
+        # saia com duas cores diferentes coladas uma na outra.
         if option.state & option.state.__class__.State_Selected:
-            painter.fillRect(option.rect, QColor(theme.RAISE))
+            painter.fillRect(option.rect, QColor(theme.cor("selecao")))
         elif option.state & option.state.__class__.State_MouseOver:
-            painter.fillRect(option.rect, QColor(theme.PANEL2))
+            painter.fillRect(option.rect, QColor(theme.cor("hover")))
 
         area = option.rect.adjusted(8, 4, -8, -4)
 
@@ -112,7 +119,7 @@ class LinhaHistorico(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         tamanho = super().sizeHint(option, index)
-        tamanho.setHeight(self.ALTURA)
+        tamanho.setHeight(self.altura())
         return tamanho
 
 
@@ -166,6 +173,9 @@ class HistoryPanel(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # sem isso o delegate da coluna do nome nunca recebe State_MouseOver, e o
+        # hover que acende na coluna do metodo nunca acendia do lado do nome
+        self.table.setMouseTracking(True)
         self.table.setIconSize(QSize(LARGURA, ALTURA))
         cabecalho = self.table.horizontalHeader()
         cabecalho.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -262,7 +272,7 @@ class HistoryPanel(QWidget):
             )
             linha.setToolTip(detalhe)
             self.table.setItem(index, 1, linha)
-            self.table.setRowHeight(index, LinhaHistorico.ALTURA)
+            self.table.setRowHeight(index, LinhaHistorico.altura())
 
         stats = self.history.stats()
         self.summary.setText(

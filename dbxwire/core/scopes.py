@@ -28,14 +28,6 @@ SCOPE_LABEL = {
     "execucao": "execucao",
 }
 
-SCOPE_COLOR = {
-    "globais": "#9aa4b2",
-    "collection": "#c084fc",
-    "pasta": "#50e3c2",
-    "ambiente": "#4da3ff",
-    "execucao": "#fca130",
-}
-
 
 @dataclass
 class VarInfo:

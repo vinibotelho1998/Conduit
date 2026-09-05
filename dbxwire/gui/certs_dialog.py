@@ -214,7 +214,9 @@ class CertsDialog(QDialog):
         self.campo_senha.textChanged.connect(self._previa)
         linha_senha.addWidget(self.campo_senha, 1)
         self.btn_ver = QPushButton("mostrar")
-        self.btn_ver.setFlat(True)
+        # setFlat nao tem efeito com folha de estilo global: sem objectName ele saia
+        # com a moldura inteira de botao comum, empurrando o campo de senha do lado
+        self.btn_ver.setObjectName("flat")
         self.btn_ver.setCheckable(True)
         self.btn_ver.toggled.connect(self._alternar_senha)
         linha_senha.addWidget(self.btn_ver)
@@ -289,7 +291,7 @@ class CertsDialog(QDialog):
             dono.setForeground(QColor(theme.DIM))
             dono.setToolTip(item.get("detalhe") or "")
             self.tabela.setItem(indice, 4, dono)
-            self.tabela.setRowHeight(indice, 28)
+            self.tabela.setRowHeight(indice, theme.medida("linha_tabela"))
 
     def selecionado(self) -> dict | None:
         linhas = self.tabela.selectionModel().selectedRows()

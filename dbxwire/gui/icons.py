@@ -29,6 +29,18 @@ ABREVIACAO = {"OPTIONS": "OPTS", "DELETE": "DEL"}
 _cache: dict[str, QIcon] = {}
 
 
+def limpar_cache() -> None:
+    """Esquece todo icone ja desenhado. Chamado quando o tema muda.
+
+    Sem isso a arvore continuava com as pilulas do tema antigo ate o app reabrir, porque
+    a chave do cache so tinha metodo e status, nunca o tema.
+    """
+    _cache.clear()
+
+
+theme.ao_trocar(limpar_cache)
+
+
 def _fonte_pilula(tamanho: float) -> QFont:
     fonte = QFont("Segoe UI")
     fonte.setPointSizeF(tamanho)
@@ -195,15 +207,7 @@ def status_icon(status, ok: bool = True) -> QIcon:
         cor = QColor(theme.ERR)
         texto = str(status) if status else "erro"
     else:
-        familia = int(status) // 100
-        cor = QColor(
-            {
-                2: theme.OK,
-                3: "#4d9bff",
-                4: theme.WARN,
-                5: theme.ERR,
-            }.get(familia, theme.DIM)
-        )
+        cor = QColor(theme.cor_do_status(int(status), True))
         texto = str(status)
 
     pix, painter = _tela()

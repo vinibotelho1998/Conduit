@@ -25,6 +25,7 @@ from ..core import scopes
 from ..core.workspaces import new_id
 from . import theme
 from .kvtable import KvTable
+from . import highlight
 from .request_editor import mono
 
 
@@ -321,7 +322,7 @@ class VariablesDialog(QDialog):
             info = mapa[nome]
             item_nome = QTableWidgetItem(nome)
             item_nome.setFont(mono(9))
-            item_nome.setForeground(QColor(scopes.SCOPE_COLOR.get(info.scope, theme.TEXT)))
+            item_nome.setForeground(QColor(highlight.cor_do_escopo(info.scope)))
             self.tabela_efetivo.setItem(indice, 0, item_nome)
 
             mostrado = info.masked() if info.secret else info.value
@@ -347,7 +348,7 @@ class VariablesDialog(QDialog):
                     "\n".join(f"{s.scope} {s.origin}: {s.masked() if s.secret else s.value}" for s in info.shadowed)
                 )
                 self.tabela_efetivo.setItem(indice, 3, item_sombra)
-            self.tabela_efetivo.setRowHeight(indice, 22)
+            self.tabela_efetivo.setRowHeight(indice, theme.medida("linha_tabela"))
 
         secretas = sum(1 for n in nomes if mapa[n].secret)
         vazias = sum(1 for n in nomes if not mapa[n].value)

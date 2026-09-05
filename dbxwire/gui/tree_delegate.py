@@ -18,8 +18,16 @@ from . import theme
 ROLE_PINTURA = Qt.ItemDataRole.UserRole + 5
 
 RECUO = 16
-ALTURA_LINHA = 30
 GAP = 7
+
+
+def altura_linha() -> int:
+    """A altura de uma linha da arvore, na densidade em uso.
+
+    Funcao e nao constante: densidade troca em tempo de execucao pelo menu Ver, e a
+    arvore precisa perguntar de novo toda vez que o Qt pede o tamanho da linha.
+    """
+    return theme.medida("linha_arvore")
 
 
 def _fonte_pilula(painter: QPainter) -> QFont:
@@ -168,20 +176,8 @@ def pintar_chevron(painter: QPainter, centro_x: float, centro_y: float, aberto: 
 
 
 def cor_do_status(status, ok: bool = True) -> str:
-    """Mesma leitura do painel de resposta, sem importar ele.
-
-    Importar o painel aqui fecharia um ciclo, porque o painel puxa o editor de request e
-    o editor puxa a arvore.
-    """
-    if not ok or not isinstance(status, int):
-        return theme.ERR
-    if status < 300:
-        return theme.OK
-    if status < 400:
-        return theme.ACCENT
-    if status < 500:
-        return theme.WARN
-    return theme.ERR
+    """A mesma leitura do painel de resposta, vinda do tema."""
+    return theme.cor_do_status(status, ok)
 
 
 def cor_da_linha(selecionado: bool, sob_mouse: bool) -> QColor | None:
@@ -218,7 +214,7 @@ class TreeDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         tamanho = super().sizeHint(option, index)
-        tamanho.setHeight(ALTURA_LINHA)
+        tamanho.setHeight(altura_linha())
         return tamanho
 
     def paint(self, painter, option, index):

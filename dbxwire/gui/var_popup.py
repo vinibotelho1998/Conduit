@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..core.scopes import SCOPE_COLOR, SCOPE_LABEL
+from ..core.scopes import SCOPE_LABEL
+from . import highlight
 from . import theme
 from .request_editor import mono
 
@@ -141,7 +142,7 @@ class VarPopup(QFrame):
             self._ajustar()
             return
 
-        cor = SCOPE_COLOR.get(info.scope, theme.DIM)
+        cor = highlight.cor_do_escopo(info.scope)
         self._pintar(cor)
         self._info = info
         self._revelado = False

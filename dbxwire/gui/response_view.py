@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import icons, theme
+from . import icons, theme, tokens
 from .highlight import CodeHighlighter, guess_language
 from .request_editor import mono
 from .widgets import BadgeTabs, so_a_pagina_aberta
@@ -62,16 +62,12 @@ def human_ms(ms: int | None) -> str:
 
 
 def status_tone(status, ok: bool) -> tuple[str, str]:
-    """Devolve cor do texto e cor de fundo da pilula."""
-    if not ok:
-        return theme.ERR, "#3a1620"
-    familia = (status or 0) // 100
-    return {
-        2: (theme.OK, "#12301f"),
-        3: ("#61affe", "#12243a"),
-        4: (theme.WARN, "#332411"),
-        5: (theme.ERR, "#3a1620"),
-    }.get(familia, (theme.DIM, theme.RAISE))
+    """Cor do texto e do fundo da pilula de status.
+
+    A conta mora em theme.tom_do_status. Existiam quatro copias dela no app, com tres
+    azuis diferentes pro 3xx e fundos fixos que nao acompanhavam o tema.
+    """
+    return theme.tom_do_status(status, ok)
 
 
 def header_value(headers, nome: str) -> str:
@@ -157,9 +153,12 @@ class Pill(QLabel):
 
     def set_status(self, texto: str, cor: str, fundo: str) -> None:
         self.setText(texto)
+        # `{cor}44` nao e RGBA no Qt, e ARGB: em todo 4xx e 5xx a borda saia numa cor
+        # que nao tinha nada a ver com o status. tokens.alfa devolve rgba de verdade.
         self.setStyleSheet(
-            f"color: {cor}; background: {fundo}; border: 1px solid {cor}44;"
-            f" border-radius: 11px; padding: 3px 12px; font-weight: 700;"
+            f"color: {cor}; background: {fundo};"
+            f" border: 1px solid {tokens.alfa(cor, 0.30)};"
+            f" border-radius: {tokens.RAIO['medio']}px; padding: 3px 12px; font-weight: 700;"
         )
         self.show()
 
@@ -296,7 +295,7 @@ class BodyView(QWidget):
                 # errado, a busca estourava excecao na primeira letra digitada
                 selecao = QTextEdit.ExtraSelection()
                 selecao.cursor = cursor
-                selecao.format.setBackground(QColor("#3d5a80"))
+                selecao.format.setBackground(QColor(theme.CODIGO["achado"]))
                 selecoes.append(selecao)
                 self._ocorrencias.append(cursor.position())
 
@@ -334,7 +333,7 @@ def tabela_pares(rows, cor_chave: str = theme.ACCENT, largura: int = 280) -> QTa
         valor.setToolTip(str(par[1]))
         tabela.setItem(indice, 0, chave)
         tabela.setItem(indice, 1, valor)
-        tabela.setRowHeight(indice, 26)
+        tabela.setRowHeight(indice, theme.medida("linha_tabela"))
     return tabela
 
 
@@ -648,7 +647,7 @@ class ResponseView(QWidget):
             tabela.setItem(indice, 0, item_nome)
             tabela.setItem(indice, 1, QTableWidgetItem(valor))
             tabela.setItem(indice, 2, QTableWidgetItem(atributos))
-            tabela.setRowHeight(indice, 22)
+            tabela.setRowHeight(indice, theme.medida("linha_tabela"))
         return tabela
 
     def _painel_enviado(self, sent: dict | None) -> QWidget:

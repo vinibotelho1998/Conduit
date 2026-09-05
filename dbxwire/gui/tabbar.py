@@ -17,7 +17,6 @@ from PySide6.QtWidgets import QMenu, QTabBar, QTabWidget
 from . import theme
 from .tree_delegate import _fonte_pilula, pintar_pilula
 
-ALTURA = 39
 # canto de cima da aba, no mesmo acabamento dos campos e botoes
 RAIO = 10.0
 MARGEM = 12
@@ -25,6 +24,15 @@ GAP = 7
 ZONA_X = 17.0
 LARGURA_MIN = 146
 LARGURA_MAX = 280
+
+
+def altura() -> int:
+    """Altura da aba, na densidade em uso.
+
+    Funcao e nao constante de proposito, pra Densidade trocar pelo menu Ver sem
+    precisar reabrir o app: o Qt pergunta de novo toda vez que remede a barra.
+    """
+    return theme.medida("altura_aba")
 
 
 def _fonte_nome(negrito: bool = False) -> QFont:
@@ -84,7 +92,7 @@ class AbaBar(QTabBar):
             largura_marca = 14.0
         texto = QFontMetricsF(_fonte_nome()).horizontalAdvance(self.tabText(index))
         total = MARGEM + largura_marca + GAP + texto + GAP + ZONA_X + MARGEM
-        return QRect(0, 0, int(max(LARGURA_MIN, min(LARGURA_MAX, total))), ALTURA).size()
+        return QRect(0, 0, int(max(LARGURA_MIN, min(LARGURA_MAX, total))), altura()).size()
 
     def _caixa_x(self, index: int) -> QRectF:
         r = self.tabRect(index)

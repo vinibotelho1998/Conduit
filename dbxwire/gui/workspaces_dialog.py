@@ -136,7 +136,7 @@ class WorkspacesDialog(QDialog):
             marca = QTableWidgetItem("sim" if entrada["id"] == ativo else "")
             marca.setForeground(QColor(theme.OK))
             self.tabela.setItem(indice, 4, marca)
-            self.tabela.setRowHeight(indice, 26)
+            self.tabela.setRowHeight(indice, theme.medida("linha_tabela"))
 
         alvo = selecionar or ativo
         for indice, entrada in enumerate(self.entradas):

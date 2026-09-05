@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import importer
-from . import theme
+from . import theme, tokens
 from .icons import ABREVIACAO
 from .request_editor import mono
 from .tree_delegate import pintar_pilula
@@ -73,11 +73,13 @@ class Pilula(QLabel):
         self.pintar(cor)
 
     def pintar(self, cor: str, forte: bool = False) -> None:
-        qcor = QColor(cor)
-        fundo = f"rgba({qcor.red()},{qcor.green()},{qcor.blue()},{70 if forte else 34})"
+        # mesmo bug do ARGB que existia na pilula de status: hex de sete digitos e
+        # lido como alfa, e a borda saia numa cor que nao era a pedida
         self.setStyleSheet(
-            f"color: {cor}; background: {fundo}; border: 1px solid {cor}{'aa' if forte else '44'};"
-            f" border-radius: 9px; padding: 2px 10px; font-size: 8pt;"
+            f"color: {cor}; background: {tokens.alfa(cor, 0.27 if forte else 0.13)};"
+            f" border: 1px solid {tokens.alfa(cor, 0.66 if forte else 0.27)};"
+            f" border-radius: {tokens.RAIO['medio']}px; padding: 2px 10px;"
+            f" font-size: {tokens.FONTE['micro']}pt;"
             f" font-weight: {'700' if forte else '600'};"
         )
 

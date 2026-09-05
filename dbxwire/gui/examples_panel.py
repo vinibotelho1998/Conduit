@@ -93,7 +93,7 @@ class ExamplesPanel(QWidget):
             medida = QTableWidgetItem(f"{tamanho} B" if tamanho else "")
             medida.setForeground(QColor(theme.FAINT))
             self.tabela.setItem(linha, 3, medida)
-            self.tabela.setRowHeight(linha, 28)
+            self.tabela.setRowHeight(linha, theme.medida("linha_tabela"))
 
     def _exemplo_da_linha(self, linha: int) -> dict | None:
         if 0 <= linha < len(self.exemplos):

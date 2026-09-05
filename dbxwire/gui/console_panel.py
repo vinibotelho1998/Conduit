@@ -77,7 +77,10 @@ class ConsolePanel(QWidget):
         self.btn_fechar = QPushButton("fechar")
         self.btn_fechar.clicked.connect(self.fechar_pedido.emit)
         for botao in (self.btn_copiar, self.btn_limpar, self.btn_fechar):
-            botao.setFlat(True)
+            # setFlat(True) nao muda nada aqui: com folha de estilo global aplicada, o
+            # Qt ignora a flag nativa e desenha o botao do jeito que a QSS manda. O
+            # objectName flat e a mesma classe visual que o resto do app usa.
+            botao.setObjectName("flat")
             bl.addWidget(botao)
         raiz.addWidget(barra)
 

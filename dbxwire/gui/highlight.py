@@ -1,14 +1,21 @@
-"""Realce de sintaxe e o tooltip de variavel, nativos, sem dependencia externa."""
+"""Realce de sintaxe e o tooltip de variavel, nativos, sem dependencia externa.
+
+As cores nao sao literais aqui dentro. Elas vem do tema em uso e sao refeitas quando ele
+troca. Congeladas no import, como estavam antes, o tema claro exibia JSON em verde e azul
+fluorescente sobre fundo branco.
+"""
 
 from __future__ import annotations
 
 import html
 import re
+import weakref
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRegularExpression, Qt
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat, QTextCursor
 
-from ..core.scopes import SCOPE_COLOR, SCOPE_LABEL
+from ..core.scopes import SCOPE_LABEL
+from . import theme
 
 
 def _fmt(color: str, bold: bool = False, italic: bool = False) -> QTextCharFormat:
@@ -21,21 +28,21 @@ def _fmt(color: str, bold: bool = False, italic: bool = False) -> QTextCharForma
     return fmt
 
 
-JSON_RULES = [
-    (QRegularExpression(r'"(?:[^"\\]|\\.)*"\s*(?=:)'), _fmt("#7fd1ff")),
-    (QRegularExpression(r'"(?:[^"\\]|\\.)*"'), _fmt("#b5e88f")),
-    (QRegularExpression(r"\b-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b"), _fmt("#f7c66b")),
-    (QRegularExpression(r"\b(?:true|false|null)\b"), _fmt("#c58cff")),
-    (QRegularExpression(r"[\{\}\[\]:,]"), _fmt("#8b93a1")),
-]
+def cor_do_escopo(escopo: str) -> str:
+    """A cor de cada escopo de variavel, sempre pela paleta do tema em uso.
 
-XML_RULES = [
-    (QRegularExpression(r"</?[\w:.-]+"), _fmt("#7fd1ff")),
-    (QRegularExpression(r"[\w:.-]+(?=\=)"), _fmt("#f7c66b")),
-    (QRegularExpression(r'"(?:[^"\\]|\\.)*"'), _fmt("#b5e88f")),
-    (QRegularExpression(r"/?>", ), _fmt("#7fd1ff")),
-    (QRegularExpression(r"<!--.*-->"), _fmt("#6b7484", italic=True)),
-]
+    O mapa equivalente ainda existe em core/scopes.py com hex fixo, mas quem desenha
+    pergunta aqui: cor de interface guardada no core nao alcanca a troca de tema, e o
+    roxo do escopo collection continuava fluorescente sobre branco.
+    """
+    return {
+        "globais": theme.P["texto_medio"],
+        "collection": theme.CODIGO["palavra"],
+        "pasta": theme.P["ok"],
+        "ambiente": theme.P["marca"],
+        "execucao": theme.P["aviso"],
+    }.get(escopo, theme.P["texto_medio"])
+
 
 PALAVRAS = (
     "import|from|as|with|const|let|var|function|func|return|await|async|class|def|"
@@ -43,32 +50,83 @@ PALAVRAS = (
     "False|true|false|print|println|Console|WriteLine|console|log|panic|defer"
 )
 
-CODE_RULES = [
-    (QRegularExpression(r"(#|//).*$"), _fmt("#6b7484", italic=True)),
-    (
-        QRegularExpression(
-            r'"(?:[^"\\]|\\.)*"'
-            r"|'(?:[^'\\]|\\.)*'"
-            r"|`(?:[^`\\]|\\.)*`"
-        ),
-        _fmt("#b5e88f"),
-    ),
-    (QRegularExpression(r"\b-?\d+(?:\.\d+)?\b"), _fmt("#f7c66b")),
-    (QRegularExpression(rf"\b(?:{PALAVRAS})\b"), _fmt("#c58cff")),
-]
+# Preenchidas por montar_regras, no fim do arquivo e a cada troca de tema.
+JSON_RULES: list = []
+XML_RULES: list = []
+CODE_RULES: list = []
 
 VAR_RE = QRegularExpression(r"\{\{\s*([\w.$-]+)\s*\}\}")
 VAR_PY = re.compile(r"\{\{\s*([\w.$-]+)\s*\}\}")
 
 # As tres situacoes de uma variavel, na mesma cor em todo lugar que ela aparece:
 # campo de texto, grade de headers e params, e o cartao do mouse.
-COR_VAR = "#4da3ff"
-COR_VAR_SECRETA = "#c084fc"
-COR_VAR_SEM_DONO = "#f9506b"
+COR_VAR = theme.CODIGO["variavel"]
+COR_VAR_SECRETA = theme.CODIGO["variavel_secreta"]
+COR_VAR_SEM_DONO = theme.CODIGO["variavel_sem_dono"]
 
 VAR_KNOWN = _fmt(COR_VAR, bold=True)
 VAR_SECRET = _fmt(COR_VAR_SECRETA, bold=True)
 VAR_UNKNOWN = _fmt(COR_VAR_SEM_DONO, bold=True)
+
+# realces vivos, por referencia fraca: o realce morre junto com o campo e a lista nao
+# pode segurar widget ja fechado
+_documentos: list = []
+
+
+def montar_regras() -> None:
+    """Reconstroi regras e formatos a partir do tema em uso, e repinta o que esta na tela."""
+    global COR_VAR, COR_VAR_SECRETA, COR_VAR_SEM_DONO
+    global VAR_KNOWN, VAR_SECRET, VAR_UNKNOWN
+
+    c = theme.CODIGO
+
+    JSON_RULES[:] = [
+        (QRegularExpression(r'"(?:[^"\\]|\\.)*"\s*(?=:)'), _fmt(c["chave"])),
+        (QRegularExpression(r'"(?:[^"\\]|\\.)*"'), _fmt(c["texto"])),
+        (QRegularExpression(r"\b-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b"), _fmt(c["numero"])),
+        (QRegularExpression(r"\b(?:true|false|null)\b"), _fmt(c["palavra"])),
+        (QRegularExpression(r"[\{\}\[\]:,]"), _fmt(c["sinal"])),
+    ]
+
+    XML_RULES[:] = [
+        (QRegularExpression(r"</?[\w:.-]+"), _fmt(c["tag"])),
+        (QRegularExpression(r"[\w:.-]+(?=\=)"), _fmt(c["atributo"])),
+        (QRegularExpression(r'"(?:[^"\\]|\\.)*"'), _fmt(c["texto"])),
+        (QRegularExpression(r"/?>"), _fmt(c["tag"])),
+        (QRegularExpression(r"<!--.*-->"), _fmt(c["comentario"], italic=True)),
+    ]
+
+    CODE_RULES[:] = [
+        (QRegularExpression(r"(#|//).*$"), _fmt(c["comentario"], italic=True)),
+        (
+            QRegularExpression(
+                r'"(?:[^"\\]|\\.)*"'
+                r"|'(?:[^'\\]|\\.)*'"
+                r"|`(?:[^`\\]|\\.)*`"
+            ),
+            _fmt(c["texto"]),
+        ),
+        (QRegularExpression(r"\b-?\d+(?:\.\d+)?\b"), _fmt(c["numero"])),
+        (QRegularExpression(rf"\b(?:{PALAVRAS})\b"), _fmt(c["palavra"])),
+    ]
+
+    COR_VAR = c["variavel"]
+    COR_VAR_SECRETA = c["variavel_secreta"]
+    COR_VAR_SEM_DONO = c["variavel_sem_dono"]
+    VAR_KNOWN = _fmt(COR_VAR, bold=True)
+    VAR_SECRET = _fmt(COR_VAR_SECRETA, bold=True)
+    VAR_UNKNOWN = _fmt(COR_VAR_SEM_DONO, bold=True)
+
+    for ref in list(_documentos):
+        alvo = ref()
+        if alvo is None:
+            _documentos.remove(ref)
+        else:
+            try:
+                alvo.rehighlight()
+            except RuntimeError:
+                # o objeto C++ ja foi embora, so o lado Python sobrou
+                _documentos.remove(ref)
 
 
 def cor_da_variavel(info) -> str:
@@ -88,6 +146,7 @@ class CodeHighlighter(QSyntaxHighlighter):
         super().__init__(document)
         self.language = language
         self.variables = variables or {}
+        _documentos.append(weakref.ref(self))
 
     def set_language(self, language: str) -> None:
         if language != self.language:
@@ -129,41 +188,49 @@ class CodeHighlighter(QSyntaxHighlighter):
 
 def tooltip_for(nome: str, info) -> str:
     """Balao rico com valor, escopo de origem e onde mais o nome existe."""
+    p = theme.P
     if info is None:
         return (
-            f"<div style='font-family:Segoe UI'>"
-            f"<b style='color:#f9506b'>{html.escape(nome)}</b><br>"
-            f"<span style='color:#98a1b0'>nao existe em nenhum escopo</span><br>"
-            f"<span style='color:#6b7484'>globais, collection, pasta, ambiente ou execucao</span>"
+            f"<div style='font-family:{theme.tokens.FAMILIA.split(',')[0]}'>"
+            f"<b style='color:{p['erro']}'>{html.escape(nome)}</b><br>"
+            f"<span style='color:{p['texto_medio']}'>nao existe em nenhum escopo</span><br>"
+            f"<span style='color:{p['texto_fraco']}'>globais, collection, pasta, ambiente ou execucao</span>"
             f"</div>"
         )
 
-    cor = SCOPE_COLOR.get(info.scope, "#98a1b0")
+    cor = cor_do_escopo(info.scope)
     rotulo = SCOPE_LABEL.get(info.scope, info.scope)
     valor = info.masked() if info.secret else info.value
 
     if valor == "":
-        corpo = "<span style='color:#fca130'>definida, mas sem valor</span>"
+        corpo = f"<span style='color:{p['aviso']}'>definida, mas sem valor</span>"
     else:
         mostrado = html.escape(valor if len(valor) <= 300 else valor[:300] + "…")
-        corpo = f"<span style='color:#d8dde5;font-family:Consolas'>{mostrado}</span>"
+        corpo = (
+            f"<span style='color:{p['texto']};"
+            f"font-family:{theme.tokens.FAMILIA_MONO.split(',')[0]}'>{mostrado}</span>"
+        )
 
+    miudo = f"font-size:{theme.tokens.FONTE['micro']}pt"
     partes = [
-        "<div style='font-family:Segoe UI'>",
+        f"<div style='font-family:{theme.tokens.FAMILIA.split(',')[0]}'>",
         f"<b style='color:{cor}'>{html.escape(nome)}</b>",
-        f" <span style='color:{cor};font-size:8pt'>{rotulo}</span>",
-        f" <span style='color:#6b7484;font-size:8pt'>{html.escape(info.origin)}</span><br>",
+        f" <span style='color:{cor};{miudo}'>{rotulo}</span>",
+        f" <span style='color:{p['texto_fraco']};{miudo}'>{html.escape(info.origin)}</span><br>",
         corpo,
     ]
     if info.secret:
-        partes.append("<br><span style='color:#c084fc;font-size:8pt'>valor secreto, nunca vai pro historico em claro</span>")
+        partes.append(
+            f"<br><span style='color:{COR_VAR_SECRETA};{miudo}'>"
+            f"valor secreto, nunca vai pro historico em claro</span>"
+        )
     if info.shadowed:
         outros = ", ".join(
             f"{SCOPE_LABEL.get(s.scope, s.scope)} {s.origin}".strip() for s in info.shadowed
         )
         partes.append(
-            f"<br><span style='color:#6b7484;font-size:8pt'>tambem definida em {html.escape(outros)}, "
-            f"e perdeu por precedencia</span>"
+            f"<br><span style='color:{p['texto_fraco']};{miudo}'>"
+            f"tambem definida em {html.escape(outros)}, e perdeu por precedencia</span>"
         )
     partes.append("</div>")
     return "".join(partes)
@@ -243,3 +310,7 @@ def guess_language(text: str, content_type: str = "") -> str:
     if "xml" in ct or "html" in ct or stripped.startswith("<"):
         return "xml"
     return "none"
+
+
+montar_regras()
+theme.ao_trocar(montar_regras)
