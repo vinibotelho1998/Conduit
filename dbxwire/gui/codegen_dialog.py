@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -107,20 +107,18 @@ class CodegenDialog(QDialog):
 
         if revelar:
             self.aviso.setText("Atencao: este codigo contem o valor real dos segredos. Nao cole em ticket nem em chat.")
-            self.aviso.setStyleSheet(f"color: {theme.ERR};")
+            theme.estilizar(self.aviso, lambda: f"color: {theme.ERR};")
         elif self.revelar.isEnabled():
             self.aviso.setText("Variavel secreta saiu como {{nome}}. Marque a caixa acima se precisar do valor real.")
-            self.aviso.setStyleSheet(f"color: {theme.FAINT};")
+            theme.estilizar(self.aviso, lambda: f"color: {theme.FAINT};")
         else:
             self.aviso.setText("Este request nao usa variavel secreta.")
-            self.aviso.setStyleSheet(f"color: {theme.FAINT};")
+            theme.estilizar(self.aviso, lambda: f"color: {theme.FAINT};")
 
     def _copiar(self) -> None:
         QGuiApplication.clipboard().setText(self.codigo.toPlainText())
         self.btn_copiar.setText("Copiado")
         self.btn_copiar.setEnabled(False)
-        from PySide6.QtCore import QTimer
-
         QTimer.singleShot(1200, self._voltar_botao)
 
     def _voltar_botao(self) -> None:

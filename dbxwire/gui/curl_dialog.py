@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -48,9 +47,10 @@ class CurlDialog(QDialog):
             "  -d '{\"campo\": \"valor\"}'"
         )
         self.entrada.setFrameShape(QFrame.Shape.NoFrame)
-        self.entrada.setStyleSheet(
-            f"QPlainTextEdit {{ background: {theme.BG}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 6px; padding: 8px; }}"
+        theme.estilizar(
+            self.entrada,
+            lambda: f"QPlainTextEdit {{ background: {theme.BG};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 6px; padding: 8px; }}",
         )
         self.entrada.textChanged.connect(self._analisar)
         self.realce = CodeHighlighter(self.entrada.document(), "code")
@@ -96,7 +96,7 @@ class CurlDialog(QDialog):
         if dados.erro:
             self.previa.setPlainText("")
             self.aviso_erro.setText(dados.erro)
-            self.aviso_erro.setStyleSheet(f"color: {theme.ERR};")
+            theme.estilizar(self.aviso_erro, lambda: f"color: {theme.ERR};")
             self.botoes.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
             return
 
@@ -128,7 +128,7 @@ class CurlDialog(QDialog):
             self.aviso_erro.setText(
                 "nao entendi e deixei de fora: " + ", ".join(dados.ignorados)
             )
-            self.aviso_erro.setStyleSheet(f"color: {theme.WARN};")
+            theme.estilizar(self.aviso_erro, lambda: f"color: {theme.WARN};")
         else:
             self.aviso_erro.setText("")
 

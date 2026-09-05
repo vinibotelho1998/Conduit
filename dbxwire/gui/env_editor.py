@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import theme
+from . import theme, tokens
 from .kvtable import KvTable
 
 
@@ -63,7 +63,7 @@ class EnvEditor(QWidget):
 
         linha = QFrame()
         linha.setFixedHeight(1)
-        linha.setStyleSheet(f"background: {theme.BORDER};")
+        theme.estilizar(linha, lambda: f"background: {theme.BORDER};")
         raiz.addWidget(linha)
 
         env.setdefault("values", [])
@@ -97,9 +97,10 @@ class EnvEditor(QWidget):
             self.marca.setText("")
         elif ativo:
             self.marca.setText("ativo")
-            self.marca.setStyleSheet(
-                f"color: {theme.OK}; background: rgba(56,212,122,38); border-radius: 8px;"
-                f" padding: 1px 9px; font-size: 8pt; font-weight: 600;"
+            theme.estilizar(
+                self.marca,
+                lambda: f"color: {theme.OK}; background: {tokens.alfa(theme.OK, 0.15)};"
+                f" border-radius: 8px; padding: 1px 9px; font-size: 8pt; font-weight: 600;",
             )
             self.btn_ativar.setEnabled(False)
             self.btn_ativar.setText("Este e o ativo")

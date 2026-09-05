@@ -67,21 +67,29 @@ def dica(texto: str) -> QLabel:
 class Pilula(QLabel):
     """Etiqueta arredondada, a mesma linguagem do resto do app."""
 
-    def __init__(self, texto: str = "", cor: str = theme.DIM, parent=None):
+    def __init__(self, texto: str = "", papel: str = "texto_medio", parent=None):
         super().__init__(texto, parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.pintar(cor)
+        self.pintar(papel)
 
-    def pintar(self, cor: str, forte: bool = False) -> None:
-        # mesmo bug do ARGB que existia na pilula de status: hex de sete digitos e
-        # lido como alfa, e a borda saia numa cor que nao era a pedida
-        self.setStyleSheet(
-            f"color: {cor}; background: {tokens.alfa(cor, 0.27 if forte else 0.13)};"
-            f" border: 1px solid {tokens.alfa(cor, 0.66 if forte else 0.27)};"
-            f" border-radius: {tokens.RAIO['medio']}px; padding: 2px 10px;"
-            f" font-size: {tokens.FONTE['micro']}pt;"
-            f" font-weight: {'700' if forte else '600'};"
-        )
+    def pintar(self, papel: str, forte: bool = False) -> None:
+        # `papel` e o nome do token, nao a cor pronta: cor resolvida congelaria dentro
+        # da lambda e a pilula ficaria na paleta do tema anterior.
+        #
+        # O alfa sai de tokens.alfa e nao de um hex de sete digitos: o Qt le sete digitos
+        # como ARGB, e era assim que a borda da pilula saia numa cor que ninguem pediu.
+        def folha(p=papel, f=forte):
+            cor = theme.cor(p)
+            return (
+                f"color: {cor};"
+                f" background: {tokens.alfa(cor, 0.27 if f else 0.13)};"
+                f" border: 1px solid {tokens.alfa(cor, 0.66 if f else 0.27)};"
+                f" border-radius: {tokens.RAIO['medio']}px; padding: 2px 10px;"
+                f" font-size: {tokens.FONTE['micro']}pt;"
+                f" font-weight: {'700' if f else '600'};"
+            )
+
+        theme.estilizar(self, folha)
 
 
 class Numero(QFrame):
@@ -94,27 +102,33 @@ class Numero(QFrame):
         layout.setSpacing(0)
 
         self.valor = QLabel("0")
-        self.valor.setStyleSheet(f"font-size: 16pt; font-weight: 700; color: {theme.TEXT};")
+        theme.estilizar(
+            self.valor, lambda: f"font-size: 16pt; font-weight: 700; color: {theme.TEXT};"
+        )
         self.valor.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.valor)
 
         texto = QLabel(rotulo)
-        texto.setStyleSheet(f"color: {theme.FAINT}; font-size: 8pt;")
+        theme.estilizar(texto, lambda: f"color: {theme.FAINT}; font-size: 8pt;")
         texto.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(texto)
 
         # o seletor precisa do objectName, senao o QLabel de dentro herda a borda
         self.setObjectName("numero")
-        self.setStyleSheet(
-            f"QFrame#numero {{ background: {theme.PANEL}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 8px; }}"
-            f"QFrame#numero QLabel {{ background: transparent; border: 0; }}"
+        theme.estilizar(
+            self,
+            lambda: f"QFrame#numero {{ background: {theme.PANEL};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 8px; }}"
+            f"QFrame#numero QLabel {{ background: transparent; border: 0; }}",
         )
 
     def definir(self, valor: int, destaque: bool = False) -> None:
         self.valor.setText(str(valor))
-        cor = theme.ACCENT if destaque and valor else (theme.TEXT if valor else theme.FAINT)
-        self.valor.setStyleSheet(f"font-size: 16pt; font-weight: 700; color: {cor};")
+        theme.estilizar(
+            self.valor,
+            lambda d=destaque, v=valor: "font-size: 16pt; font-weight: 700; color: %s;"
+            % (theme.ACCENT if d and v else (theme.TEXT if v else theme.FAINT)),
+        )
 
 
 class AreaSolta(QFrame):
@@ -135,7 +149,7 @@ class AreaSolta(QFrame):
 
         self.recado = QLabel("Arraste o arquivo aqui")
         self.recado.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.recado.setStyleSheet(f"font-size: 11pt; color: {theme.DIM};")
+        theme.estilizar(self.recado, lambda: f"font-size: 11pt; color: {theme.DIM};")
         layout.addWidget(self.recado)
 
         botoes = QHBoxLayout()
@@ -162,21 +176,22 @@ class AreaSolta(QFrame):
         layout.addLayout(formatos)
 
     def _pintar(self, ativo: bool) -> None:
-        cor = theme.ACCENT if ativo else theme.BORDER
-        fundo = theme.PANEL2 if ativo else theme.PANEL
         self.setObjectName("areaSolta")
-        self.setStyleSheet(
-            f"QFrame#areaSolta {{ background: {fundo}; border: 2px dashed {cor};"
+        theme.estilizar(
+            self,
+            lambda a=ativo: f"QFrame#areaSolta {{"
+            f" background: {theme.PANEL2 if a else theme.PANEL};"
+            f" border: 2px dashed {theme.ACCENT if a else theme.BORDER};"
             f" border-radius: 12px; }}"
-            f"QFrame#areaSolta > QLabel {{ background: transparent; border: 0; }}"
+            f"QFrame#areaSolta > QLabel {{ background: transparent; border: 0; }}",
         )
 
     def marcar_formato(self, nome: str | None) -> None:
         for chave, pilula in self.pilulas.items():
             if chave == nome:
-                pilula.pintar(theme.ACCENT, forte=True)
+                pilula.pintar("marca", forte=True)
             else:
-                pilula.pintar(theme.FAINT)
+                pilula.pintar("texto_fraco")
 
 
     def dragEnterEvent(self, evento):  # noqa: N802
@@ -332,10 +347,11 @@ class ImportDialog(QDialog):
         self.previa.setItemDelegate(LinhaPrevia(self.previa))
         self.previa.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.previa.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.previa.setStyleSheet(
-            f"QTreeWidget {{ background: {theme.PANEL}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 8px; padding: 6px; }}"
-            f"QTreeWidget::item:hover {{ background: transparent; }}"
+        theme.estilizar(
+            self.previa,
+            lambda: f"QTreeWidget {{ background: {theme.PANEL};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 8px; padding: 6px; }}"
+            f"QTreeWidget::item:hover {{ background: transparent; }}",
         )
         self.previa.hide()
         raiz.addWidget(self.previa, 1)
@@ -379,7 +395,7 @@ class ImportDialog(QDialog):
             self.faixa.mostrar(
                 f"nao reconheci o formato de {caminho.name}. Aceito Postman, Insomnia, "
                 "Bruno e OpenAPI",
-                theme.ERR,
+                "erro",
             )
             self.botoes.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
             return
@@ -389,14 +405,14 @@ class ImportDialog(QDialog):
         self.resultado = resultado
 
         if resultado.erro:
-            self.faixa.mostrar(resultado.erro, theme.ERR)
+            self.faixa.mostrar(resultado.erro, "erro")
             self.botoes.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
             return
 
         self.area.hide()
         self.barra.show()
         self.pilula_formato.setText(nome)
-        self.pilula_formato.pintar(theme.ACCENT, forte=True)
+        self.pilula_formato.pintar("marca", forte=True)
         self.nome_arquivo.setText(caminho.name)
         self.nome_arquivo.setToolTip(str(caminho))
 
@@ -427,7 +443,7 @@ class ImportDialog(QDialog):
         self.previa.expandAll()
 
         if resultado.avisos:
-            self.faixa.mostrar("   ·   ".join(resultado.avisos), theme.WARN)
+            self.faixa.mostrar("   ·   ".join(resultado.avisos), "aviso")
 
         self.botoes.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
 
@@ -459,21 +475,22 @@ class CartaoFormato(QFrame):
         layout.addWidget(self.nome)
 
         self.detalhe = QLabel(detalhe)
-        self.detalhe.setStyleSheet(f"color: {theme.FAINT}; font-size: 8pt;")
+        theme.estilizar(self.detalhe, lambda: f"color: {theme.FAINT}; font-size: 8pt;")
         self.detalhe.setWordWrap(True)
         layout.addWidget(self.detalhe)
 
         self.marcar(False)
 
     def marcar(self, ativo: bool) -> None:
-        cor = theme.ACCENT if ativo else theme.BORDER
-        fundo = theme.PANEL2 if ativo else theme.PANEL
         self.setObjectName("cartaoFormato")
-        self.setStyleSheet(
-            f"QFrame#cartaoFormato {{ background: {fundo}; border: 1px solid {cor};"
+        theme.estilizar(
+            self,
+            lambda a=ativo: f"QFrame#cartaoFormato {{"
+            f" background: {theme.PANEL2 if a else theme.PANEL};"
+            f" border: 1px solid {theme.ACCENT if a else theme.BORDER};"
             f" border-radius: 8px; }}"
             f"QFrame#cartaoFormato:hover {{ border-color: {theme.ACCENT}; }}"
-            f"QFrame#cartaoFormato QLabel {{ background: transparent; border: 0; }}"
+            f"QFrame#cartaoFormato QLabel {{ background: transparent; border: 0; }}",
         )
 
     def mousePressEvent(self, evento):  # noqa: N802
@@ -531,11 +548,12 @@ class ExportDialog(QDialog):
 
         self.lista = QListWidget()
         self.lista.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.lista.setStyleSheet(
-            f"QListWidget {{ background: {theme.PANEL}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 8px; padding: 6px; }}"
+        theme.estilizar(
+            self.lista,
+            lambda: f"QListWidget {{ background: {theme.PANEL};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 8px; padding: 6px; }}"
             f"QListWidget::item {{ padding: 6px 8px; border-radius: 5px; }}"
-            f"QListWidget::item:hover {{ background: {theme.PANEL2}; }}"
+            f"QListWidget::item:hover {{ background: {theme.PANEL2}; }}",
         )
         for colecao in tree.get("collections") or []:
             quantos = self._contar(colecao)
@@ -626,11 +644,11 @@ class ExportDialog(QDialog):
             self.faixa.mostrar(
                 "o arquivo vai conter credencial de verdade, nao mande por chat nem "
                 "coloque em repositorio",
-                theme.ERR,
+                "erro",
             )
         else:
             self.faixa.mostrar(
-                "variavel secreta sai so com o nome, sem valor", theme.FAINT
+                "variavel secreta sai so com o nome, sem valor", "texto_fraco"
             )
 
     def escolher_destino(self) -> None:
@@ -649,7 +667,7 @@ class ExportDialog(QDialog):
         if caminho:
             self.destino = Path(caminho)
             self.caminho_label.setText(caminho)
-            self.caminho_label.setStyleSheet(f"color: {theme.TEXT};")
+            theme.estilizar(self.caminho_label, lambda: f"color: {theme.TEXT};")
             self.botoes.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
 
     def escolhidas(self) -> list:

@@ -24,11 +24,12 @@ def botao(texto: str, dica: str, acao) -> QToolButton:
     alvo.setToolTip(dica)
     alvo.setAutoRaise(True)
     alvo.setCursor(Qt.CursorShape.PointingHandCursor)
-    alvo.setStyleSheet(
-        f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
+    theme.estilizar(
+        alvo,
+        lambda: f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
         f" padding: 3px 10px; border-radius: 9px; }}"
         f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}"
-        f"QToolButton:checked {{ color: {theme.ACCENT}; }}"
+        f"QToolButton:checked {{ color: {theme.ACCENT}; }}",
     )
     alvo.clicked.connect(acao)
     return alvo
@@ -45,12 +46,12 @@ class Rodape(QWidget):
 
         linha = QFrame()
         linha.setFixedHeight(1)
-        linha.setStyleSheet(f"background: {theme.BORDER};")
+        theme.estilizar(linha, lambda: f"background: {theme.BORDER};")
         raiz.addWidget(linha)
 
         corpo = QWidget()
         corpo.setObjectName("rodape")
-        corpo.setStyleSheet(f"QWidget#rodape {{ background: {theme.PANEL}; }}")
+        theme.estilizar(corpo, lambda: f"QWidget#rodape {{ background: {theme.PANEL}; }}")
         raiz.addWidget(corpo)
 
         self.linha = QHBoxLayout(corpo)
@@ -58,7 +59,7 @@ class Rodape(QWidget):
         self.linha.setSpacing(2)
 
         self.mensagem = QLabel("")
-        self.mensagem.setStyleSheet(f"color: {theme.DIM}; padding-left: 10px;")
+        theme.estilizar(self.mensagem, lambda: f"color: {theme.DIM}; padding-left: 10px;")
         self.linha.addWidget(self.mensagem, 1)
 
         self._timer = QTimer(self)
@@ -92,5 +93,5 @@ class Rodape(QWidget):
         risco = QFrame()
         risco.setFixedWidth(1)
         risco.setFixedHeight(14)
-        risco.setStyleSheet(f"background: {theme.BORDER};")
+        theme.estilizar(risco, lambda: f"background: {theme.BORDER};")
         self.addWidget(risco)

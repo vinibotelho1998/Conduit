@@ -10,7 +10,7 @@ entra, entao um so canto serve pras duas coisas e a aba nao fica mais larga por 
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QMenu, QTabBar, QTabWidget
 
@@ -117,7 +117,7 @@ class AbaBar(QTabBar):
             return
         selecionada = index == self.currentIndex()
         sob = index == self._sob
-        _, metodo, sujo = self._info(index)
+        tipo, metodo, sujo = self._info(index)
 
         # A aba encosta na resposta por baixo, entao so o topo arredonda: pastilha
         # com quatro cantos redondos flutua solta em cima do conteudo.
@@ -151,6 +151,8 @@ class AbaBar(QTabBar):
         x = r.left() + MARGEM
         if metodo:
             x = pintar_pilula(painter, x, centro, metodo, theme.METHOD_COLORS.get(metodo, theme.DIM))
+        elif tipo == "sftp":
+            x = self._pintar_servidor(painter, x, centro)
         else:
             x = self._pintar_globo(painter, x, centro)
         x += GAP
@@ -219,6 +221,31 @@ class AbaBar(QTabBar):
         painter.drawEllipse(QPointF(centro_x, centro), raio / 2.1, raio)
         painter.restore()
         return x + raio * 2
+
+
+    @staticmethod
+    def _pintar_servidor(painter: QPainter, x: float, centro: float) -> float:
+        """Marca da aba de SFTP: duas gavetas empilhadas, com a luzinha acesa.
+
+        Precisa ser diferente do globo do ambiente. Sem isso as duas abas sem metodo
+        ficavam com a mesma marca, e a fila de abas deixava de dizer o que e o que.
+        """
+        painter.save()
+        caneta = QPen(QColor(theme.ACCENT))
+        caneta.setWidthF(1.2)
+        painter.setPen(caneta)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        largura, altura_caixa = 12.0, 5.0
+        for deslocamento in (-altura_caixa - 1.0, 1.0):
+            caixa = QRectF(x, centro + deslocamento, largura, altura_caixa)
+            painter.drawRoundedRect(caixa, 1.4, 1.4)
+            painter.save()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.ACCENT))
+            painter.drawEllipse(QPointF(x + 2.6, caixa.center().y()), 1.0, 1.0)
+            painter.restore()
+        painter.restore()
+        return x + largura
 
 
     def _no_x(self, index: int, ponto) -> bool:

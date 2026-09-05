@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -54,7 +53,7 @@ def titulo(texto: str) -> QLabel:
 def separador() -> QFrame:
     linha = QFrame()
     linha.setFixedHeight(1)
-    linha.setStyleSheet(f"background: {theme.BORDER};")
+    theme.estilizar(linha, lambda: f"background: {theme.BORDER};")
     return linha
 
 
@@ -164,17 +163,18 @@ class CertsDialog(QDialog):
         barra.addStretch(1)
 
         self.btn_remover = QPushButton("Remover")
-        self.btn_remover.setStyleSheet(f"QPushButton {{ color: {theme.ERR}; }}")
+        theme.estilizar(self.btn_remover, lambda: f"QPushButton {{ color: {theme.ERR}; }}")
         self.btn_remover.clicked.connect(self.remover)
         barra.addWidget(self.btn_remover)
         raiz.addLayout(barra)
 
         self.form = QFrame()
         self.form.setObjectName("formCert")
-        self.form.setStyleSheet(
-            f"QFrame#formCert {{ background: {theme.PANEL}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 10px; }}"
-            f"QFrame#formCert QLabel {{ background: transparent; border: 0; }}"
+        theme.estilizar(
+            self.form,
+            lambda: f"QFrame#formCert {{ background: {theme.PANEL};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 10px; }}"
+            f"QFrame#formCert QLabel {{ background: transparent; border: 0; }}",
         )
         fl = QVBoxLayout(self.form)
         fl.setContentsMargins(14, 12, 14, 12)
@@ -315,15 +315,13 @@ class CertsDialog(QDialog):
             return
         alvo = Path(caminho)
         if not alvo.exists():
-            self.faixa_ca.mostrar("arquivo nao encontrado", theme.ERR)
+            self.faixa_ca.mostrar("arquivo nao encontrado", "erro")
             return
         dados = certs.inspecionar(caminho, "")
         if dados.get("erro"):
-            self.faixa_ca.mostrar(dados["erro"], theme.ERR)
+            self.faixa_ca.mostrar(dados["erro"], "erro")
             return
-        self.faixa_ca.mostrar(
-            f"{dados['dono'][:70]}  ·  vale ate {dados['ate']}", theme.OK
-        )
+        self.faixa_ca.mostrar(f"{dados['dono'][:70]}  ·  vale ate {dados['ate']}", "ok")
 
 
     def _mostrar_form(self, mostrar: bool) -> None:
@@ -351,22 +349,22 @@ class CertsDialog(QDialog):
             return
         dados = certs.inspecionar(caminho, self.campo_senha.text())
         if dados.get("erro"):
-            self.faixa_form.mostrar(dados["erro"], theme.ERR)
+            self.faixa_form.mostrar(dados["erro"], "erro")
             return
         dias = dados.get("dias", 0)
-        cor = theme.OK if dias > 30 else (theme.WARN if dias >= 0 else theme.ERR)
+        papel = "ok" if dias > 30 else ("aviso" if dias >= 0 else "erro")
         quando = f"vale ate {dados['ate']}" if dias >= 0 else f"venceu em {dados['ate']}"
-        self.faixa_form.mostrar(f"{dados['dono'][:66]}  ·  {quando}", cor)
+        self.faixa_form.mostrar(f"{dados['dono'][:66]}  ·  {quando}", papel)
 
 
     def adicionar(self) -> None:
         host = self.campo_host.text().strip()
         arquivo = self.campo_arquivo.text()
         if not host or not arquivo:
-            self.faixa_form.mostrar("host e arquivo sao obrigatorios", theme.WARN)
+            self.faixa_form.mostrar("host e arquivo sao obrigatorios", "aviso")
             return
         if not Path(arquivo).exists():
-            self.faixa_form.mostrar("arquivo nao encontrado", theme.ERR)
+            self.faixa_form.mostrar("arquivo nao encontrado", "erro")
             return
 
         senha = self.campo_senha.text()

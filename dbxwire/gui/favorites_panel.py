@@ -119,8 +119,9 @@ class FavoritesPanel(QWidget):
         self.lista.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.lista.setMouseTracking(True)
         self.lista.setItemDelegate(LinhaFavorito(self.lista))
-        self.lista.setStyleSheet(
-            f"QListWidget {{ border: 0; background: {theme.PANEL}; outline: 0; }}"
+        theme.estilizar(
+            self.lista,
+            lambda: f"QListWidget {{ border: 0; background: {theme.PANEL}; outline: 0; }}",
         )
         self.lista.itemClicked.connect(self._clicou)
         self.lista.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

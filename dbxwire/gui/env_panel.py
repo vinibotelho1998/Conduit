@@ -55,10 +55,11 @@ class EnvPanel(QWidget):
         self.btn_novo = QToolButton()
         self.btn_novo.setText("+")
         self.btn_novo.setToolTip("Novo ambiente, Ctrl+Shift+E")
-        self.btn_novo.setStyleSheet(
-            f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
+        theme.estilizar(
+            self.btn_novo,
+            lambda: f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
             f" padding: 2px 6px; border-radius: 4px; }}"
-            f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}"
+            f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}",
         )
         self.btn_novo.clicked.connect(self.criar.emit)
         cl.addWidget(self.btn_novo)
@@ -66,11 +67,12 @@ class EnvPanel(QWidget):
 
         self.lista = QListWidget()
         self.lista.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.lista.setStyleSheet(
-            f"QListWidget {{ border: 0; background: {theme.PANEL}; outline: 0; }}"
+        theme.estilizar(
+            self.lista,
+            lambda: f"QListWidget {{ border: 0; background: {theme.PANEL}; outline: 0; }}"
             f"QListWidget::item {{ padding: 7px 12px; border-radius: 4px; margin: 1px 6px; }}"
             f"QListWidget::item:hover {{ background: {theme.PANEL2}; }}"
-            f"QListWidget::item:selected {{ background: {theme.RAISE}; color: {theme.TEXT}; }}"
+            f"QListWidget::item:selected {{ background: {theme.RAISE}; color: {theme.TEXT}; }}",
         )
         self.lista.itemClicked.connect(self._clicou)
         self.lista.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -80,7 +82,9 @@ class EnvPanel(QWidget):
         self.rodape = QLabel("")
         self.rodape.setObjectName("hint")
         self.rodape.setWordWrap(True)
-        self.rodape.setStyleSheet(f"color: {theme.FAINT}; padding: 8px 12px; font-size: 8pt;")
+        theme.estilizar(
+            self.rodape, lambda: f"color: {theme.FAINT}; padding: 8px 12px; font-size: 8pt;"
+        )
         raiz.addWidget(self.rodape)
 
 

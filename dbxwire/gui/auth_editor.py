@@ -9,8 +9,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -70,7 +68,7 @@ class AuthEditor(QWidget):
 
         linha = QFrame()
         linha.setFixedHeight(1)
-        linha.setStyleSheet(f"background: {theme.BORDER};")
+        theme.estilizar(linha, lambda: f"background: {theme.BORDER};")
         raiz.addWidget(linha)
 
         self.paginas = QStackedWidget()
@@ -249,22 +247,22 @@ class AuthEditor(QWidget):
             url = config.get("tokenUrl") or ""
             if not url or not config.get("clientId"):
                 self.resumo.setText("faltando: OAuth2 precisa de URL do token e client id")
-                self.resumo.setStyleSheet(f"color: {theme.WARN}; font-size: 8pt;")
+                theme.estilizar(self.resumo, lambda: f"color: {theme.WARN}; font-size: 8pt;")
             else:
                 self.resumo.setText(
                     f"vai pedir token em {url} e mandar como Authorization: "
                     f"{config.get('prefix') or 'Bearer'}"
                 )
-                self.resumo.setStyleSheet(f"color: {theme.FAINT}; font-size: 8pt;")
+                theme.estilizar(self.resumo, lambda: f"color: {theme.FAINT}; font-size: 8pt;")
             return
 
         aplicada = authmod.aplicar(config, self._plano)
         if aplicada.erro:
             self.resumo.setText(f"faltando: {aplicada.erro}")
-            self.resumo.setStyleSheet(f"color: {theme.WARN}; font-size: 8pt;")
+            theme.estilizar(self.resumo, lambda: f"color: {theme.WARN}; font-size: 8pt;")
         else:
             self.resumo.setText(f"vai sair como {aplicada.detalhe}")
-            self.resumo.setStyleSheet(f"color: {theme.FAINT}; font-size: 8pt;")
+            theme.estilizar(self.resumo, lambda: f"color: {theme.FAINT}; font-size: 8pt;")
 
 
     def set_variables(self, variaveis: dict) -> None:

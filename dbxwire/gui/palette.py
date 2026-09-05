@@ -78,25 +78,30 @@ class Palette(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
-        self.setStyleSheet(
-            f"QDialog {{ background: {theme.PANEL2}; border: 1px solid {theme.ACCENT}; border-radius: 10px; }}"
+        theme.estilizar(
+            self,
+            lambda: f"QDialog {{ background: {theme.PANEL2};"
+            f" border: 1px solid {theme.ACCENT}; border-radius: 10px; }}",
         )
 
         self.busca = QLineEdit()
         self.busca.setPlaceholderText(titulo)
-        self.busca.setStyleSheet(
-            f"QLineEdit {{ border: 0; border-bottom: 1px solid {theme.BORDER}; border-radius: 0;"
-            f" padding: 12px 14px; font-size: 11pt; background: transparent; }}"
+        theme.estilizar(
+            self.busca,
+            lambda: f"QLineEdit {{ border: 0; border-bottom: 1px solid {theme.BORDER};"
+            f" border-radius: 0; padding: 12px 14px; font-size: 11pt;"
+            f" background: transparent; }}",
         )
         self.busca.textChanged.connect(self._filtrar)
         self.busca.returnPressed.connect(self._aceitar)
         layout.addWidget(self.busca)
 
         self.lista = QListWidget()
-        self.lista.setStyleSheet(
-            f"QListWidget {{ border: 0; background: transparent; padding: 6px; }}"
+        theme.estilizar(
+            self.lista,
+            lambda: f"QListWidget {{ border: 0; background: transparent; padding: 6px; }}"
             f"QListWidget::item {{ padding: 6px 10px; border-radius: 6px; }}"
-            f"QListWidget::item:selected {{ background: {theme.RAISE}; }}"
+            f"QListWidget::item:selected {{ background: {theme.RAISE}; }}",
         )
         self.lista.itemActivated.connect(lambda _: self._aceitar())
         self.lista.itemDoubleClicked.connect(lambda _: self._aceitar())
@@ -104,7 +109,11 @@ class Palette(QDialog):
 
         self.rodape = QLabel("  Enter abre   ·   Esc fecha   ·   setas navegam")
         self.rodape.setObjectName("hint")
-        self.rodape.setStyleSheet(f"color: {theme.FAINT}; border-top: 1px solid {theme.BORDER}; padding: 6px 12px;")
+        theme.estilizar(
+            self.rodape,
+            lambda: f"color: {theme.FAINT}; border-top: 1px solid {theme.BORDER};"
+            f" padding: 6px 12px;",
+        )
         layout.addWidget(self.rodape)
 
         self.escolhido: PaletteItem | None = None

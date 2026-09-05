@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from ..core.scopes import SCOPE_LABEL
 from . import highlight
-from . import theme
+from . import theme, tokens
 from .request_editor import mono
 
 LARGURA_MAXIMA = 460
@@ -94,7 +94,7 @@ class VarPopup(QFrame):
 
         self.nota = QLabel("")
         self.nota.setWordWrap(True)
-        self.nota.setStyleSheet(f"color: {theme.FAINT}; font-size: 8pt;")
+        theme.estilizar(self.nota, lambda: f"color: {theme.FAINT}; font-size: 8pt;")
         dentro.addWidget(self.nota)
 
         self.setMaximumWidth(LARGURA_MAXIMA + 24)
@@ -130,11 +130,15 @@ class VarPopup(QFrame):
             self.olho.hide()
             self._pintar(theme.ERR)
             self.nome.setText(nome)
-            self.nome.setStyleSheet(f"font-weight: 700; font-size: 10pt; color: {theme.ERR};")
+            theme.estilizar(
+                self.nome,
+                lambda: f"font-weight: 700; font-size: 10pt; color: {theme.ERR};",
+            )
             self.etiqueta.setText("nao existe")
-            self.etiqueta.setStyleSheet(
-                f"color: {theme.ERR}; background: rgba(249,80,107,38); border-radius: 8px;"
-                f" padding: 1px 8px; font-size: 8pt; font-weight: 600;"
+            theme.estilizar(
+                self.etiqueta,
+                lambda: f"color: {theme.ERR}; background: {tokens.alfa(theme.ERR, 0.15)};"
+                f" border-radius: 8px; padding: 1px 8px; font-size: 8pt; font-weight: 600;",
             )
             self.valor.setText("nenhum escopo define esse nome")
             self.nota.setText("procurei em globais, collection, pasta, ambiente e execucao")
@@ -150,18 +154,24 @@ class VarPopup(QFrame):
         self.olho.setText("mostrar")
 
         self.nome.setText(nome)
-        self.nome.setStyleSheet(f"font-weight: 700; font-size: 10pt; color: {cor};")
+        theme.estilizar(
+            self.nome,
+            lambda e=info.scope: "font-weight: 700; font-size: 10pt; color: %s;"
+            % highlight.cor_do_escopo(e),
+        )
 
         rotulo = SCOPE_LABEL.get(info.scope, info.scope)
         if info.origin:
             rotulo = f"{rotulo} · {info.origin}"
         self.etiqueta.setText(rotulo)
-        qcor = QColor(cor)
-        self.etiqueta.setStyleSheet(
-            f"color: {cor};"
-            f" background: rgba({qcor.red()},{qcor.green()},{qcor.blue()},38);"
-            f" border-radius: 8px; padding: 1px 8px; font-size: 8pt; font-weight: 600;"
-        )
+        def etiqueta(escopo=info.scope):
+            cor_atual = highlight.cor_do_escopo(escopo)
+            return (
+                f"color: {cor_atual}; background: {tokens.alfa(cor_atual, 0.15)};"
+                f" border-radius: 8px; padding: 1px 8px; font-size: 8pt; font-weight: 600;"
+            )
+
+        theme.estilizar(self.etiqueta, etiqueta)
 
         valor = info.masked() if info.secret else info.value
         if valor == "":

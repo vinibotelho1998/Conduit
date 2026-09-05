@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QModelIndex, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QCursor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -17,8 +17,6 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
-from . import icons
-from .icons import collection_icon, folder_icon, method_icon
 from .tree_delegate import (
     RECUO,
     TreeDelegate,
@@ -223,10 +221,11 @@ class TreePanel(QWidget):
         self.btn_collapse.setText("−")
         self.btn_collapse.setToolTip("Recolher tudo")
         for btn in (self.btn_new, self.btn_ordem, self.btn_collapse):
-            btn.setStyleSheet(
-                f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
+            theme.estilizar(
+                btn,
+                lambda: f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
                 f" padding: 2px 6px; border-radius: 4px; }}"
-                f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}"
+                f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}",
             )
             head_layout.addWidget(btn)
         self.btn_collapse.clicked.connect(self._collapse_all)

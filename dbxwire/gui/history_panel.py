@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QCheckBox,
     QHeaderView,
     QStyledItemDelegate,
     QComboBox,
@@ -29,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.history import History, Query, short_id
-from .icons import ALTURA, LARGURA, method_icon, status_icon
+from .icons import ALTURA, LARGURA, method_icon
 from . import theme
 from .highlight import CodeHighlighter
 from .request_editor import mono
@@ -204,10 +202,11 @@ class HistoryPanel(QWidget):
         self.btn_replay.setText("Reenviar")
         self.btn_replay.clicked.connect(self._replay)
         for btn in (self.btn_detail, self.btn_replay):
-            btn.setStyleSheet(
-                f"QToolButton {{ background: {theme.PANEL2}; border: 1px solid {theme.BORDER};"
-                f" border-radius: 5px; padding: 4px 10px; }}"
-                f"QToolButton:hover {{ border-color: {theme.ACCENT}; }}"
+            theme.estilizar(
+                btn,
+                lambda: f"QToolButton {{ background: {theme.PANEL2};"
+                f" border: 1px solid {theme.BORDER}; border-radius: 5px; padding: 4px 10px; }}"
+                f"QToolButton:hover {{ border-color: {theme.ACCENT}; }}",
             )
             foot_layout.addWidget(btn)
         root.addWidget(foot)
@@ -402,7 +401,7 @@ class HistoryDetail(QDialog):
 
         if response.get("error"):
             erro = QLabel(response["error"])
-            erro.setStyleSheet(f"color: {theme.ERR};")
+            theme.estilizar(erro, lambda: f"color: {theme.ERR};")
             erro.setWordWrap(True)
             head_layout.addWidget(erro)
 

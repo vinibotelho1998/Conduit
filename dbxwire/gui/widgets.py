@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import theme
+from . import theme, tokens
 
 
 class BadgeTabBar(QTabBar):
@@ -147,24 +147,33 @@ class Faixa(QWidget):
         layout.addWidget(self.botao)
         self.hide()
 
-    def mostrar(self, mensagem: str, cor: str, acao: str = "") -> None:
+    def mostrar(self, mensagem: str, papel: str, acao: str = "") -> None:
+        """`papel` e o nome do token, tipo "erro" ou "aviso", e nao a cor pronta.
+
+        Cor resolvida vira numero congelado dentro da lambda que repinta, e trocar de
+        tema deixaria a faixa na paleta velha. O papel a lambda resolve na hora. De
+        quebra o chamador passa a dizer o que a faixa significa em vez de que cor ela e.
+        """
         self.texto.setText(mensagem)
         self.botao.setText(acao)
         self.botao.setVisible(bool(acao))
-        self.botao.setStyleSheet(
-            f"QPushButton#faixaAcao {{ color: {cor}; background: transparent; border: 0;"
-            f" font-size: 8pt; font-weight: 600; text-decoration: underline; padding: 0 2px; }}"
+        theme.estilizar(
+            self.botao,
+            lambda p=papel: f"QPushButton#faixaAcao {{ color: {theme.cor(p)};"
+            f" background: transparent; border: 0; font-size: 8pt; font-weight: 600;"
+            f" text-decoration: underline; padding: 0 2px; }}",
         )
-        self.texto.setStyleSheet(f"color: {cor}; font-size: 8pt;")
-        self.bolinha.setStyleSheet(f"color: {cor}; font-size: 8pt;")
-        fundo = QColor(cor)
+        theme.estilizar(self.texto, lambda p=papel: f"color: {theme.cor(p)}; font-size: 8pt;")
+        theme.estilizar(self.bolinha, lambda p=papel: f"color: {theme.cor(p)}; font-size: 8pt;")
         # o seletor precisa do objectName, senao os QLabel de dentro herdam a borda e a
         # faixa passa a parecer um campo de texto
         self.setObjectName("faixa")
-        self.setStyleSheet(
-            f"QWidget#faixa {{ background: rgba({fundo.red()},{fundo.green()},{fundo.blue()},28);"
-            f" border-left: 2px solid {cor}; border-radius: 3px; }}"
-            f"QWidget#faixa QLabel {{ background: transparent; border: 0; }}"
+        theme.estilizar(
+            self,
+            lambda p=papel: f"QWidget#faixa {{"
+            f" background: {tokens.alfa(theme.cor(p), 0.11)};"
+            f" border-left: 2px solid {theme.cor(p)}; border-radius: 3px; }}"
+            f"QWidget#faixa QLabel {{ background: transparent; border: 0; }}",
         )
         self.show()
 
