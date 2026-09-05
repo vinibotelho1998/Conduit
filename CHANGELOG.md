@@ -1,5 +1,72 @@
 # Novidades do Dbx Wire
 
+## 0.7.0, 5 de setembro de 2026
+
+### SFTP dentro do app
+
+- Aba nova na lateral, **Servidores SFTP**. Duplo clique conecta e abre o navegador na
+  area principal, do mesmo jeito que um request abre
+- Navegacao com trilha clicavel, entrar e voltar, Backspace pra subir, F5 pra recarregar
+  e Ctrl+L pra colar um caminho inteiro. Nome, tamanho, data e permissoes em colunas
+- Baixar e enviar varios arquivos de uma vez, com barra de progresso. Download grava num
+  `.parcial` e so renomeia no fim, entao transferencia interrompida nao deixa arquivo
+  pela metade com o nome do arquivo bom
+- Criar pasta, renomear e apagar no servidor, com confirmacao que diz em letras que
+  aquilo acontece no servidor e que nao existe lixeira
+- Previa de arquivo de texto sem baixar, com o mesmo realce de sintaxe da resposta.
+  Arquivo binario recusa a previa em vez de encher a tela de lixo
+- **A chave do servidor e conferida.** Servidor desconhecido para a conexao e mostra a
+  impressao digital SHA256 pra voce comparar antes de confiar; a chave so entra no
+  `known_hosts` do workspace depois disso. Chave que mudou desde a ultima vez avisa em
+  vermelho, porque e o sinal classico de alguem no meio do caminho
+- Senha e frase da chave privada vao pro mesmo cofre AES-256-GCM das variaveis secretas.
+  O arquivo versionado guarda so o contrato: host, porta e usuario
+- Nada de rede na thread da interface: servidor lento nao congela mais nada
+
+### Tema novo, sem azul
+
+- A marca virou violeta, e os cinzas deixaram de puxar pro azul. O tema escuro ficou mais
+  fundo e neutro, e o claro mais quente
+- Metodo, status e realce de sintaxe repaginados. Nenhum deles usa a cor da marca:
+  metodo e dado, marca e navegacao, e o olho precisa saber qual dos dois esta olhando
+- Todo token que carrega informacao passa de 4.5 de contraste na WCAG, conferido nos dois
+  temas
+
+### Trocar de tema agora troca a tela inteira
+
+- Cerca de sessenta pontos do app escreviam a propria folha de estilo com a cor ja
+  resolvida dentro. Trocar de tema reescrevia a folha geral e nao encostava em nenhum
+  deles: rodape, barra da resposta, cartao de variavel, listas e dialogos continuavam na
+  paleta antiga ate reabrir o programa. Todos passaram a se registrar e sao repintados
+  junto
+- O mesmo valia pros icones desenhados em codigo e pros que usavam cor do tema como valor
+  padrao de argumento, que o Python resolve uma vez no import e nunca mais
+
+### Consertos
+
+- **Codigo em Go nao compilava** pra request sem corpo: o `strings` entrava no import sem
+  ninguem usar
+- **Codigo em PowerShell quebrava** quando a url ou um header tinha aspa simples dentro
+- Codigo em C# saia sem `using System;`, entao o `Console.WriteLine` nao compilava
+- **Exemplo salvo nunca mostrava o tamanho**: gravava numa chave e era lido de outra
+- Salvar uma resposta binaria gravava o texto da tela; agora imagem e pdf saem byte a
+  byte, com a extensao certa
+- A aba Imagem se fechava sozinha a cada resposta nova
+- **Ajuda, Novidades nunca abria no app instalado**: o CHANGELOG.md nao ia junto no
+  pacote. Agora vai, e a busca funciona tanto do codigo quanto do executavel
+- Envio com certificado cliente piscava um console preto a cada chamada
+- A altura entre request, resposta e console era gravada e nunca lida de volta
+- Erro nao tratado num app de janela sumia sem deixar rastro. Agora vira uma caixa que
+  diz o que foi, um registro em `erros.log` e o programa segue de pe
+- O executavel passou a carregar versao, produto e empresa nas propriedades do Windows
+
+### Miudezas
+
+- Botao **Enviar** em portugues, ao lado de Enviando e Salvar
+- Dado de exemplo sem nome de pessoa e sem referencia a sistema de terceiro
+- Menu Arquivo tinha dois separadores seguidos no mesmo lugar
+
+
 ## 0.6.0, 24 de agosto de 2026
 
 ### Exemplo de resposta, como no Postman
