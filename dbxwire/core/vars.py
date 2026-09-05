@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from . import dinamicas
+
 VAR_RE = re.compile(r"\{\{\s*([\w.$-]+)\s*\}\}")
 
 
@@ -45,6 +47,15 @@ def resolve(text: str, variables: dict[str, dict]) -> Resolved:
 
     def repl(match: re.Match) -> str:
         name = match.group(1)
+        # Cifrao e namespace reservado das geradas na hora, tipo {{$guid}}. Ele resolve
+        # antes de olhar os escopos de proposito: quem ja tem um $guid vazio salvo de
+        # quando o app nao conhecia essas variaveis nao fica preso a ele.
+        if dinamicas.eh_dinamica(name):
+            gerado = dinamicas.gerar(name)
+            if gerado is not None:
+                return gerado
+            missing.append(name)
+            return match.group(0)
         if name not in variables:
             missing.append(name)
             return match.group(0)
