@@ -24,6 +24,11 @@ ESCALA = 4
 
 # Metodo longo em pilula estreita vira borrao. Abreviacao curta le melhor, e o nome
 # inteiro continua visivel no seletor e no tooltip.
+#
+# Nenhuma funcao daqui usa cor do tema como valor padrao de argumento: Python avalia
+# esse valor uma vez, no import, entao o padrao ficava preso na paleta de quando o
+# modulo carregou e chamada sem argumento devolvia icone do tema errado depois da troca.
+# Todas recebem "" e resolvem a cor dentro, antes de montar a chave do cache.
 ABREVIACAO = {"OPTIONS": "OPTS", "DELETE": "DEL"}
 
 _cache: dict[str, QIcon] = {}
@@ -105,12 +110,13 @@ def method_icon(method: str) -> QIcon:
     return _guardar(chave, pix)
 
 
-def collection_icon(cor: str = theme.ACCENT) -> QIcon:
+def collection_icon(cor: str = "") -> QIcon:
     """Tres placas empilhadas, o desenho classico de camadas.
 
     Placa achatada com folga entre elas le como pilha. Losango cheio, que era o desenho
     anterior, lia como pedra preciosa.
     """
+    cor = cor or theme.ACCENT
     chave = f"c5:{cor}"
     if chave in _cache:
         return _cache[chave]
@@ -144,8 +150,9 @@ def collection_icon(cor: str = theme.ACCENT) -> QIcon:
     return _guardar(chave, pix)
 
 
-def folder_icon(aberta: bool = False, cor: str = theme.DIM) -> QIcon:
+def folder_icon(aberta: bool = False, cor: str = "") -> QIcon:
     """Pasta com aba. A aberta muda de cor e inclina a frente, pra ler de relance."""
+    cor = cor or theme.DIM
     chave = f"f5:{aberta}:{cor}"
     if chave in _cache:
         return _cache[chave]
@@ -234,8 +241,9 @@ def status_icon(status, ok: bool = True) -> QIcon:
     return _guardar(chave, pix)
 
 
-def chevron_icon(aberto: bool, cor: str = theme.FAINT) -> QIcon:
+def chevron_icon(aberto: bool, cor: str = "") -> QIcon:
     """Seta de expandir, na mesma familia de tracos do resto."""
+    cor = cor or theme.FAINT
     chave = f"v5:{aberto}:{cor}"
     if chave in _cache:
         return _cache[chave]
@@ -284,8 +292,9 @@ def _caneta(painter: QPainter, cor: str, largura: float = 1.5) -> QPen:
     return caneta
 
 
-def icone_copiar(cor: str = theme.DIM) -> QIcon:
+def icone_copiar(cor: str = "") -> QIcon:
     """Duas folhas sobrepostas."""
+    cor = cor or theme.DIM
     chave = f"copiar:{cor}"
     if chave in _cache:
         return _cache[chave]
@@ -297,8 +306,9 @@ def icone_copiar(cor: str = theme.DIM) -> QIcon:
     return _guardar(chave, pix)
 
 
-def icone_baixar(cor: str = theme.DIM) -> QIcon:
+def icone_baixar(cor: str = "") -> QIcon:
     """Seta pra baixo em cima de uma base: salvar em arquivo."""
+    cor = cor or theme.DIM
     chave = f"baixar:{cor}"
     if chave in _cache:
         return _cache[chave]
@@ -315,8 +325,9 @@ def icone_baixar(cor: str = theme.DIM) -> QIcon:
     return _guardar(chave, pix)
 
 
-def icone_marcador(cor: str = theme.DIM) -> QIcon:
+def icone_marcador(cor: str = "") -> QIcon:
     """Marcador de pagina: guardar esta resposta como exemplo."""
+    cor = cor or theme.DIM
     chave = f"marcador:{cor}"
     if chave in _cache:
         return _cache[chave]
@@ -334,8 +345,9 @@ def icone_marcador(cor: str = theme.DIM) -> QIcon:
     return _guardar(chave, pix)
 
 
-def icone_quebra(cor: str = theme.DIM) -> QIcon:
+def icone_quebra(cor: str = "") -> QIcon:
     """Seta que volta pra linha de baixo: quebrar linha."""
+    cor = cor or theme.DIM
     chave = f"quebra:{cor}"
     if chave in _cache:
         return _cache[chave]
@@ -357,8 +369,9 @@ def icone_quebra(cor: str = theme.DIM) -> QIcon:
     return _guardar(chave, pix)
 
 
-def icone_lupa(cor: str = theme.DIM) -> QIcon:
+def icone_lupa(cor: str = "") -> QIcon:
     """Lupa: abre a busca dentro do corpo da resposta."""
+    cor = cor or theme.DIM
     chave = f"lupa:{cor}"
     if chave in _cache:
         return _cache[chave]
@@ -370,8 +383,28 @@ def icone_lupa(cor: str = theme.DIM) -> QIcon:
     return _guardar(chave, pix)
 
 
-def icone_fechar(cor: str = theme.FAINT, lado: int = 14) -> QIcon:
+def icone_terminal(cor: str = "") -> QIcon:
+    """Prompt de terminal: copiar o curl completo, pronto pra colar no console.
+
+    E o sinal de maior com o risco embaixo, que qualquer pessoa que abre terminal
+    reconhece. Um icone de copia comum aqui ia se confundir com o de copiar o corpo,
+    que fica dois botoes ao lado.
+    """
+    cor = cor or theme.DIM
+    chave = f"terminal:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor)
+    painter.drawPolyline([QPointF(3.4, 4.6), QPointF(7.6, 8.4), QPointF(3.4, 12.2)])
+    painter.drawLine(QPointF(9.2, 12.4), QPointF(14.6, 12.4))
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_fechar(cor: str = "", lado: int = 14) -> QIcon:
     """X de apagar linha. O caractere multiplicacao mudava de desenho com a fonte."""
+    cor = cor or theme.FAINT
     chave = f"fechar:{cor}:{lado}"
     if chave in _cache:
         return _cache[chave]
@@ -380,5 +413,191 @@ def icone_fechar(cor: str = theme.FAINT, lado: int = 14) -> QIcon:
     recuo = lado * 0.29
     painter.drawLine(QPointF(recuo, recuo), QPointF(lado - recuo, lado - recuo))
     painter.drawLine(QPointF(lado - recuo, recuo), QPointF(recuo, lado - recuo))
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_arquivo(cor: str = "") -> QIcon:
+    """Folha com o canto dobrado. Par do folder_icon na listagem do SFTP."""
+    cor = cor or theme.FAINT
+    chave = f"arq:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(LADO, LADO)
+    dobra = 5.0
+    esquerda, topo, direita, base = 3.6, 2.2, 14.4, 15.8
+
+    contorno = QPainterPath()
+    contorno.moveTo(QPointF(esquerda, topo))
+    contorno.lineTo(QPointF(direita - dobra, topo))
+    contorno.lineTo(QPointF(direita, topo + dobra))
+    contorno.lineTo(QPointF(direita, base))
+    contorno.lineTo(QPointF(esquerda, base))
+    contorno.closeSubpath()
+
+    tinta = QColor(cor)
+    fundo = QColor(cor)
+    fundo.setAlpha(28)
+    caneta = QPen(tinta)
+    caneta.setWidthF(1.2)
+    caneta.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(caneta)
+    painter.setBrush(fundo)
+    painter.drawPath(contorno)
+
+    # o canto dobrado e o que faz a silhueta ler como papel e nao como retangulo
+    canto = QPainterPath()
+    canto.moveTo(QPointF(direita - dobra, topo))
+    canto.lineTo(QPointF(direita - dobra, topo + dobra))
+    canto.lineTo(QPointF(direita, topo + dobra))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawPath(canto)
+
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_link(cor: str = "") -> QIcon:
+    """Seta de atalho, pra distinguir link simbolico de arquivo de verdade."""
+    cor = cor or theme.ACCENT
+    chave = f"link:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor, 1.4)
+    painter.drawLine(QPointF(5.0, 13.0), QPointF(12.6, 5.4))
+    ponta = QPainterPath()
+    ponta.moveTo(QPointF(8.4, 4.6))
+    ponta.lineTo(QPointF(13.4, 4.6))
+    ponta.lineTo(QPointF(13.4, 9.6))
+    painter.drawPath(ponta)
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_subir(cor: str = "") -> QIcon:
+    """Seta pra cima com um degrau, o gesto de voltar uma pasta."""
+    cor = cor or theme.DIM
+    chave = f"subir:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor, 1.5)
+    painter.drawLine(QPointF(9.0, 4.2), QPointF(9.0, 14.0))
+    ponta = QPainterPath()
+    ponta.moveTo(QPointF(5.0, 8.2))
+    ponta.lineTo(QPointF(9.0, 4.2))
+    ponta.lineTo(QPointF(13.0, 8.2))
+    painter.drawPath(ponta)
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_recarregar(cor: str = "") -> QIcon:
+    """Arco quase fechado com ponta de seta: reler sem sair do lugar."""
+    cor = cor or theme.DIM
+    chave = f"recarregar:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor, 1.5)
+    caixa = QRectF(3.4, 3.4, 11.2, 11.2)
+    # o vao no arco e o que separa "recarregar" de "carregando": circulo fechado le
+    # como espera, arco aberto le como acao
+    painter.drawArc(caixa, 60 * 16, 260 * 16)
+    ponta = QPainterPath()
+    ponta.moveTo(QPointF(9.2, 1.8))
+    ponta.lineTo(QPointF(12.8, 4.6))
+    ponta.lineTo(QPointF(9.0, 6.6))
+    painter.drawPath(ponta)
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_oculto(cor: str = "") -> QIcon:
+    """Olho, pra ligar e desligar o que comeca com ponto."""
+    cor = cor or theme.DIM
+    chave = f"oculto:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor, 1.4)
+    olho = QPainterPath()
+    olho.moveTo(QPointF(2.2, 9.0))
+    olho.quadTo(QPointF(9.0, 2.6), QPointF(15.8, 9.0))
+    olho.quadTo(QPointF(9.0, 15.4), QPointF(2.2, 9.0))
+    painter.drawPath(olho)
+    painter.drawEllipse(QPointF(9.0, 9.0), 2.4, 2.4)
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_servidor(cor: str = "") -> QIcon:
+    """Duas gavetas empilhadas com a luzinha acesa. O SFTP na lateral."""
+    cor = cor or theme.DIM
+    chave = f"servidor:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(LADO, LADO)
+    tinta = QColor(cor)
+    fundo = QColor(cor)
+    fundo.setAlpha(30)
+    caneta = QPen(tinta)
+    caneta.setWidthF(1.2)
+    painter.setPen(caneta)
+    painter.setBrush(fundo)
+    painter.drawRoundedRect(QRectF(2.6, 3.2, 12.8, 5.0), 1.6, 1.6)
+    painter.drawRoundedRect(QRectF(2.6, 9.8, 12.8, 5.0), 1.6, 1.6)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(tinta)
+    painter.drawEllipse(QPointF(5.2, 5.7), 1.0, 1.0)
+    painter.drawEllipse(QPointF(5.2, 12.3), 1.0, 1.0)
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def ponto_cor(cor: str, lado: int = 14, atual: bool = False) -> QIcon:
+    """Circulo cheio na cor pedida. E a identidade visual do workspace.
+
+    Antes essa marca era `border-left: 3px solid` no proprio botao. Borda colorida num
+    controle e a linguagem de campo com foco, entao o seletor de workspace parecia uma
+    caixa de texto acesa em vez de um seletor.
+
+    Com `atual`, o ponto ganha um anel aberto em volta. E como o menu diz qual workspace
+    esta aberto agora. Antes isso era `setChecked` numa acao que tambem tinha icone, e o
+    Qt poe as duas coisas na mesma coluna: o visto de escolhido praticamente sumia atras
+    do ponto, entao a lista inteira parecia igual.
+    """
+    chave = f"ponto:{cor}:{lado}:{atual}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(lado, lado)
+    painter.setPen(Qt.PenStyle.NoPen)
+    # anel translucido em volta pra cor nao encostar direto no fundo e sumir nos tons
+    # que ficam perto da superficie
+    halo = QColor(cor)
+    halo.setAlpha(60)
+    painter.setBrush(halo)
+    painter.drawEllipse(QRectF(0.5, 0.5, lado - 1.0, lado - 1.0))
+    painter.setBrush(QColor(cor))
+    recuo = lado * (0.34 if atual else 0.28)
+    painter.drawEllipse(QRectF(recuo, recuo, lado - recuo * 2, lado - recuo * 2))
+
+    if atual:
+        # anel aberto e nitido, na cor cheia: e o que separa o aberto dos outros de
+        # relance, sem depender de negrito nem de texto extra do lado
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        caneta = QPen(QColor(cor))
+        caneta.setWidthF(max(1.2, lado * 0.11))
+        painter.setPen(caneta)
+        borda = lado * 0.10
+        painter.drawEllipse(QRectF(borda, borda, lado - borda * 2, lado - borda * 2))
     painter.end()
     return _guardar(chave, pix)
