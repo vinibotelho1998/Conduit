@@ -381,6 +381,10 @@ QToolButton#silencioso:pressed {{ background: {p["superficie_alta"]}; }}
 QToolButton#silencioso:checked {{ background: {p["marca_fundo"]}; color: {p["marca"]}; }}
 QToolButton#silencioso:focus {{ border-color: {p["foco"]}; }}
 QToolButton#silencioso:disabled {{ color: {p["texto_apagado"]}; }}
+/* A setinha de menu do Qt aparece fora da toolbar tambem, e como ela nao cabe no
+   respiro do botao ela sai cortada na borda. Quem abre menu aqui ja diz isso pelo
+   proprio rotulo, entao a seta some. */
+QToolButton#silencioso::menu-indicator {{ image: none; width: 0; }}
 
 /* ------------------------------------------------------------- listas e arvores */
 

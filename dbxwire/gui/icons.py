@@ -562,6 +562,34 @@ def icone_servidor(cor: str = "") -> QIcon:
     return _guardar(chave, pix)
 
 
+def radio(ativo: bool, cor: str = "", lado: int = 15) -> QIcon:
+    """Circulo vazado que enche quando esta escolhido, igual a um radio de formulario.
+
+    Serve pra escolha de um entre varios, como o ambiente ativo. Um ponto cheio dizia
+    o estado, mas nao dizia que dava pra clicar: circulo vazado e a forma que todo mundo
+    ja aprendeu a ler como "escolha uma destas".
+    """
+    cor = cor or (theme.ACCENT if ativo else theme.FAINT)
+    chave = f"radio:{cor}:{lado}:{ativo}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(lado, lado)
+    caneta = QPen(QColor(cor))
+    caneta.setWidthF(1.5)
+    painter.setPen(caneta)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    borda = 1.4
+    painter.drawEllipse(QRectF(borda, borda, lado - borda * 2, lado - borda * 2))
+    if ativo:
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(cor))
+        recuo = lado * 0.31
+        painter.drawEllipse(QRectF(recuo, recuo, lado - recuo * 2, lado - recuo * 2))
+    painter.end()
+    return _guardar(chave, pix)
+
+
 def ponto_cor(cor: str, lado: int = 14, atual: bool = False) -> QIcon:
     """Circulo cheio na cor pedida. E a identidade visual do workspace.
 
