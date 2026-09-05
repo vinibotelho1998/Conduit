@@ -36,9 +36,9 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import scopes
+from . import icons
 from . import theme
 from . import highlight
-from .highlight import COR_VAR_SECRETA
 from .request_editor import mono
 
 PAPEL_VALOR = Qt.ItemDataRole.UserRole + 1
@@ -57,9 +57,10 @@ class ValorDelegate(QStyledItemDelegate):
         editor = QLineEdit(parent)
         editor.setFont(mono(9))
         editor.setFrame(False)
-        editor.setStyleSheet(
-            f"QLineEdit {{ background: {theme.BG}; border: 1px solid {theme.ACCENT};"
-            f" border-radius: 6px; padding: 0 7px; color: {theme.TEXT}; }}"
+        theme.estilizar(
+            editor,
+            lambda: f"QLineEdit {{ background: {theme.BG}; border: 1px solid {theme.ACCENT};"
+            f" border-radius: 6px; padding: 0 7px; color: {theme.TEXT}; }}",
         )
         return editor
 
@@ -92,9 +93,10 @@ class EnvPeek(QFrame):
 
         self.cartao = QFrame()
         self.cartao.setObjectName("peekCard")
-        self.cartao.setStyleSheet(
-            f"QFrame#peekCard {{ background: {theme.PANEL2}; border: 1px solid {theme.BORDER};"
-            f" border-radius: 10px; }}"
+        theme.estilizar(
+            self.cartao,
+            lambda: f"QFrame#peekCard {{ background: {theme.PANEL2};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 10px; }}",
         )
         sombra = QGraphicsDropShadowEffect(self)
         sombra.setBlurRadius(28)
@@ -108,9 +110,21 @@ class EnvPeek(QFrame):
         dentro.setSpacing(8)
 
         topo = QHBoxLayout()
+        topo.setSpacing(10)
         self.titulo = QLabel("")
         self.titulo.setStyleSheet("font-weight: 700; font-size: 10pt;")
         topo.addWidget(self.titulo)
+
+        # Busca. Com mais de cem variaveis, achar uma no olho e rolagem pura: a lista
+        # so cabe umas dez por vez. Filtra por nome, valor e origem ao mesmo tempo,
+        # porque "todas as de um projeto" e uma pergunta tao comum quanto pelo nome.
+        self.busca = QLineEdit()
+        self.busca.setPlaceholderText("Filtrar por nome, valor ou origem")
+        self.busca.setClearButtonEnabled(True)
+        self.busca.setFixedWidth(260)
+        self.busca.textChanged.connect(self._filtrar)
+        topo.addWidget(self.busca)
+
         topo.addStretch(1)
         self.resumo = QLabel("")
         self.resumo.setObjectName("hint")
@@ -196,9 +210,18 @@ class EnvPeek(QFrame):
             if not info.value:
                 vazias += 1
 
+            # A origem sai na cor do escopo, com o ponto na frente. Antes era tudo o
+            # mesmo cinza, entao separar o que vem do ambiente do que vem da collection
+            # exigia ler palavra por palavra numa lista de cem linhas.
+            cor_escopo = highlight.cor_do_escopo(info.scope)
             origem = f"{scopes.SCOPE_LABEL.get(info.scope, info.scope)} {info.origin}".strip()
             item_origem = QTableWidgetItem(origem)
-            item_origem.setForeground(QColor(theme.FAINT))
+            item_origem.setIcon(icons.ponto_cor(cor_escopo, 9))
+            item_origem.setForeground(QColor(cor_escopo))
+            item_origem.setToolTip(
+                f"vem do escopo {scopes.SCOPE_LABEL.get(info.scope, info.scope)}"
+                + (f", em {info.origin}" if info.origin else "")
+            )
             item_origem.setFlags(item_origem.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.tabela.setItem(indice, 3, item_origem)
             self.tabela.setRowHeight(indice, theme.medida("linha_tabela"))
@@ -209,8 +232,38 @@ class EnvPeek(QFrame):
         if vazias:
             partes.append(f"{vazias} sem valor")
         self.resumo.setText("   ·   ".join(partes))
+        self._total = "   ·   ".join(partes)
         self.btn_editar.setEnabled(bool(nome_ambiente))
         self._carregando = False
+        self._filtrar()
+
+    def _filtrar(self) -> None:
+        """Esconde a linha que nao casa com a busca, sem mexer no que esta carregado."""
+        alvo = (self.busca.text() or "").strip().lower()
+        visiveis = 0
+        for linha in range(self.tabela.rowCount()):
+            nome = self.tabela.item(linha, 0)
+            valor = self.tabela.item(linha, 1)
+            origem = self.tabela.item(linha, 3)
+            if nome is None:
+                continue
+            # o valor real, e nao a mascara: procurar por um pedaco do token e o jeito
+            # mais rapido de descobrir qual variavel esta com ele
+            texto = " ".join(
+                [
+                    nome.text(),
+                    str(valor.data(PAPEL_VALOR) or "") if valor is not None else "",
+                    origem.text() if origem is not None else "",
+                ]
+            ).lower()
+            casa = alvo in texto if alvo else True
+            self.tabela.setRowHidden(linha, not casa)
+            visiveis += casa
+
+        if alvo:
+            self.resumo.setText(f"{visiveis} de {self.tabela.rowCount()}")
+        else:
+            self.resumo.setText(getattr(self, "_total", ""))
 
     def _menu(self, ponto) -> None:
         """Botao direito na linha: marcar ou desmarcar como secreta."""
@@ -240,10 +293,11 @@ class EnvPeek(QFrame):
         botao.setText("◉" if nome in self._revelados else "◎")
         botao.setToolTip("esconder o valor" if nome in self._revelados else "mostrar o valor")
         botao.setCursor(Qt.CursorShape.PointingHandCursor)
-        botao.setStyleSheet(
-            f"QToolButton {{ border: 0; background: transparent; color: {theme.FAINT};"
+        theme.estilizar(
+            botao,
+            lambda: f"QToolButton {{ border: 0; background: transparent; color: {theme.FAINT};"
             f" font-size: 11pt; padding: 0; }}"
-            f"QToolButton:hover {{ color: {COR_VAR_SECRETA}; }}"
+            f"QToolButton:hover {{ color: {theme.CODIGO['variavel_secreta']}; }}",
         )
         botao.clicked.connect(lambda _=False, n=nome, l=linha: self._alternar(n, l))
         return botao
@@ -270,10 +324,10 @@ class EnvPeek(QFrame):
             cor = theme.WARN
         elif secreto and nome not in self._revelados:
             mostrado = info.masked() if info is not None else "***"
-            cor = COR_VAR_SECRETA
+            cor = theme.CODIGO["variavel_secreta"]
         else:
             mostrado = valor
-            cor = COR_VAR_SECRETA if secreto else theme.TEXT
+            cor = theme.CODIGO["variavel_secreta"] if secreto else theme.TEXT
 
         anterior = self._carregando
         self._carregando = True
