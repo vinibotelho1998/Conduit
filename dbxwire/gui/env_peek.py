@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from ..core import scopes
 from . import theme
+from . import highlight
 from .highlight import COR_VAR_SECRETA
 from .request_editor import mono
 
@@ -120,11 +121,14 @@ class EnvPeek(QFrame):
         self.tabela.setHorizontalHeaderLabels(["Nome", "Valor", "", "Vem de"])
         self.tabela.verticalHeader().setVisible(False)
         self.tabela.setShowGrid(False)
+        # AnyKeyPressed ficava aqui e era uma armadilha: com a celula so selecionada,
+        # sem estar em edicao, apertar Delete ou Backspace pra navegar disparava edicao
+        # com o texto inteiro pre-selecionado, e a mesma tecla apagava tudo. O valor
+        # sumia e ia pro disco na hora, porque este cartao grava a cada edicao.
         self.tabela.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked
             | QAbstractItemView.EditTrigger.SelectedClicked
             | QAbstractItemView.EditTrigger.EditKeyPressed
-            | QAbstractItemView.EditTrigger.AnyKeyPressed
         )
         self.tabela.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.tabela.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -172,7 +176,7 @@ class EnvPeek(QFrame):
             info = mapa[nome]
             item_nome = QTableWidgetItem(nome)
             item_nome.setFont(mono(9))
-            item_nome.setForeground(QColor(scopes.SCOPE_COLOR.get(info.scope, theme.TEXT)))
+            item_nome.setForeground(QColor(highlight.cor_do_escopo(info.scope)))
             item_nome.setFlags(item_nome.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.tabela.setItem(indice, 0, item_nome)
 
@@ -197,7 +201,7 @@ class EnvPeek(QFrame):
             item_origem.setForeground(QColor(theme.FAINT))
             item_origem.setFlags(item_origem.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.tabela.setItem(indice, 3, item_origem)
-            self.tabela.setRowHeight(indice, 30)
+            self.tabela.setRowHeight(indice, theme.medida("linha_tabela"))
 
         partes = [f"{len(nomes)} variaveis"]
         if secretas:

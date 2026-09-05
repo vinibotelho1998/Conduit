@@ -241,10 +241,12 @@ class KvTable(QWidget):
         # a marca de escolhido pega a linha toda: celula sozinha vira uma caixinha
         # solta no meio da grade, sem comeco nem fim
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        # AnyKeyPressed nao entra aqui de proposito: com a celula so selecionada, uma
+        # tecla como Delete ou Backspace apertada por engano iniciava edicao com o texto
+        # inteiro pre-selecionado, e a mesma tecla virava o valor vazio.
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked
             | QAbstractItemView.EditTrigger.SelectedClicked
-            | QAbstractItemView.EditTrigger.AnyKeyPressed
             | QAbstractItemView.EditTrigger.EditKeyPressed
         )
 
@@ -306,7 +308,7 @@ class KvTable(QWidget):
     def _append_row(self, data: dict, ghost: bool) -> None:
         index = self.table.rowCount()
         self.table.insertRow(index)
-        self.table.setRowHeight(index, 32)
+        self.table.setRowHeight(index, theme.medida("linha_grade"))
 
         if not ghost:
             self.table.setCellWidget(
