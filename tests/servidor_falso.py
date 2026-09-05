@@ -1,0 +1,151 @@
+# -*- coding: utf-8 -*-
+"""Servidor SFTP local, so pros testes.
+
+Serve uma pasta temporaria numa porta livre da propria maquina. E paramiko dos dois
+lados, entao o que o teste exercita e o protocolo de verdade, e nao um dublê que
+concorda com tudo que o cliente faz.
+"""
+
+import os
+import socket
+import threading
+
+import paramiko
+from paramiko import SFTPAttributes, SFTPServer, SFTPServerInterface, SFTPHandle, SFTP_OK
+
+USUARIO = "vini"
+SENHA = "segredo-do-teste"
+
+
+class Servidor(paramiko.ServerInterface):
+    def check_auth_password(self, username, password):
+        if username == USUARIO and password == SENHA:
+            return paramiko.AUTH_SUCCESSFUL
+        return paramiko.AUTH_FAILED
+
+    def check_channel_request(self, kind, chanid):
+        return paramiko.OPEN_SUCCEEDED
+
+    def get_allowed_auths(self, username):
+        return "password"
+
+
+class Handle(SFTPHandle):
+    def stat(self):
+        try:
+            return SFTPAttributes.from_stat(os.fstat(self.readfile.fileno()))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+
+    def chattr(self, attr):
+        return SFTP_OK
+
+
+class Interface(SFTPServerInterface):
+    RAIZ = ""
+
+    def _real(self, caminho):
+        return os.path.join(self.RAIZ, caminho.lstrip("/").replace("/", os.sep))
+
+    def list_folder(self, path):
+        try:
+            saida = []
+            for nome in os.listdir(self._real(path)):
+                attr = SFTPAttributes.from_stat(os.stat(os.path.join(self._real(path), nome)))
+                attr.filename = nome
+                saida.append(attr)
+            return saida
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+
+    def stat(self, path):
+        try:
+            return SFTPAttributes.from_stat(os.stat(self._real(path)))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+
+    lstat = stat
+
+    def open(self, path, flags, attr):
+        real = self._real(path)
+        try:
+            binario = getattr(os, "O_BINARY", 0)
+            fd = os.open(real, flags | binario)
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+        if flags & (os.O_WRONLY | os.O_RDWR | os.O_APPEND):
+            modo = "r+b" if flags & os.O_RDWR else "wb"
+        else:
+            modo = "rb"
+        try:
+            arquivo = os.fdopen(fd, modo)
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+        alca = Handle(flags)
+        alca.filename = real
+        alca.readfile = arquivo
+        alca.writefile = arquivo
+        return alca
+
+    def remove(self, path):
+        try:
+            os.remove(self._real(path))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+        return SFTP_OK
+
+    def rename(self, oldpath, newpath):
+        try:
+            os.rename(self._real(oldpath), self._real(newpath))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+        return SFTP_OK
+
+    def mkdir(self, path, attr):
+        try:
+            os.mkdir(self._real(path))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+        return SFTP_OK
+
+    def rmdir(self, path):
+        try:
+            os.rmdir(self._real(path))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+        return SFTP_OK
+
+    def chattr(self, path, attr):
+        return SFTP_OK
+
+    def canonicalize(self, path):
+        return "/" + os.path.normpath(path).replace("\\", "/").lstrip("/")
+
+
+def subir(raiz: str) -> int:
+    """Sobe o servidor numa porta livre e devolve a porta."""
+    Interface.RAIZ = raiz
+    chave = paramiko.RSAKey.generate(2048)
+
+    tomada = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tomada.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    tomada.bind(("127.0.0.1", 0))
+    tomada.listen(5)
+    porta = tomada.getsockname()[1]
+
+    def atender():
+        while True:
+            try:
+                canal, _ = tomada.accept()
+            except OSError:
+                return
+            transporte = paramiko.Transport(canal)
+            transporte.add_server_key(chave)
+            transporte.set_subsystem_handler("sftp", SFTPServer, Interface)
+            try:
+                transporte.start_server(server=Servidor())
+            except Exception:
+                continue
+
+    threading.Thread(target=atender, daemon=True).start()
+    return porta
