@@ -60,7 +60,7 @@ def montar(nome: str, resultado: dict, enviado: dict | None, ledger=None) -> dic
         "ok": bool(resultado.get("ok")),
         "error": resultado.get("error") or "",
         "elapsedMs": resultado.get("elapsedMs"),
-        "size": resultado.get("size"),
+        "sizeBytes": resultado.get("sizeBytes"),
         "request": {
             "method": enviado.get("method") or "",
             "url": redact(enviado.get("url") or "", ledger),
@@ -85,7 +85,13 @@ def para_resposta(exemplo: dict) -> tuple[dict, dict]:
         "status": exemplo.get("status"),
         "reason": exemplo.get("reason") or "",
         "elapsedMs": exemplo.get("elapsedMs"),
-        "size": exemplo.get("size") if exemplo.get("size") is not None else len(corpo.encode("utf-8")),
+        # exemplo antigo gravava a chave como "size"; le as duas pra nao perder o que ja
+        # esta no disco
+        "sizeBytes": (
+            exemplo.get("sizeBytes")
+            if exemplo.get("sizeBytes") is not None
+            else exemplo.get("size", len(corpo.encode("utf-8")))
+        ),
         "headers": [(p[0], p[1]) for p in resposta.get("headers") or []],
         "body": corpo,
         "url": pedido.get("url") or "",
@@ -106,7 +112,7 @@ def resumo(exemplo: dict) -> str:
     quando = (exemplo.get("savedAt") or "")[:16].replace("T", " ")
     if quando:
         partes.append(quando)
-    tamanho = exemplo.get("size")
+    tamanho = exemplo.get("sizeBytes") or exemplo.get("size")
     if tamanho:
         partes.append(f"{tamanho} B")
     return "   ·   ".join(partes)

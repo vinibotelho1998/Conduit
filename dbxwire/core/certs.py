@@ -121,11 +121,37 @@ def contexto_ssl(
         os.close(descritor)
 
     if os.name == "nt":
-        # tira heranca e deixa so o usuario atual, que e o dono do processo
-        os.system(f'icacls "{temporario}" /inheritance:r /grant:r "%USERNAME%":F >nul 2>&1')
+        _so_o_dono(temporario)
 
     contexto.load_cert_chain(temporario)
     return contexto, temporario
+
+
+def _so_o_dono(caminho: str) -> None:
+    """Tira a heranca de permissao e deixa so a conta que roda o processo.
+
+    Era `os.system`, e num app de janela isso abre um console preto por um instante a
+    cada envio com mTLS. `subprocess` com CREATE_NO_WINDOW faz o mesmo em silencio, e de
+    quebra o caminho vai como argumento e nao como texto concatenado numa linha de
+    comando.
+    """
+    import subprocess
+
+    usuario = os.environ.get("USERNAME") or ""
+    if not usuario:
+        return
+    try:
+        subprocess.run(
+            ["icacls", caminho, "/inheritance:r", "/grant:r", f"{usuario}:F"],
+            check=False,
+            capture_output=True,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # sem as permissoes apertadas o envio ainda funciona; o arquivo e temporario e
+        # some logo depois do handshake
+        pass
 
 
 def descartar(temporario: str | None) -> None:

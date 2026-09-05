@@ -61,14 +61,23 @@ def _curl(method, url, headers, body) -> str:
     return " \\\n".join(linhas)
 
 
+def _ps_literal(valor: str) -> str:
+    """Literal do PowerShell. Aspa simples se escapa dobrando ela mesma."""
+    return "'" + str(valor).replace("'", "''") + "'"
+
+
 def _powershell(method, url, headers, body) -> str:
     partes = []
     if headers:
-        itens = ";".join(f'"{k}"="{v}"' for k, v in headers.items())
-        partes.append(f"$headers = @{{{itens}}}")
+        # Sem escapar, um header ou uma url com aspa dentro fechava a string antes da
+        # hora e o comando colado no terminal nem rodava.
+        itens = "; ".join(
+            f"{_ps_literal(k)} = {_ps_literal(v)}" for k, v in headers.items()
+        )
+        partes.append(f"$headers = @{{ {itens} }}")
     if body:
         partes.append("$body = @'\n" + body + "\n'@")
-    chamada = [f"Invoke-RestMethod -Method {method} -Uri '{url}'"]
+    chamada = [f"Invoke-RestMethod -Method {method} -Uri {_ps_literal(url)}"]
     if headers:
         chamada.append("-Headers $headers")
     if body:
@@ -90,7 +99,7 @@ def _python_httpx(method, url, headers, body) -> str:
         args.append("headers=headers")
     if body:
         args.append("content=body.encode()")
-    linhas.append(f"with httpx.Client(timeout=60, follow_redirects=True) as client:")
+    linhas.append("with httpx.Client(timeout=60, follow_redirects=True) as client:")
     linhas.append(f"    resposta = client.request({', '.join(args)})")
     linhas.append("")
     linhas.append("print(resposta.status_code, resposta.elapsed.total_seconds())")
@@ -124,9 +133,6 @@ def _py_literal(body: str) -> str:
 
 
 def _fetch(method, url, headers, body) -> str:
-    opcoes: dict = {"method": method}
-    if headers:
-        opcoes["headers"] = headers
     corpo = ""
     if body:
         corpo = "  body: " + _js_literal(body) + ",\n"
@@ -204,6 +210,7 @@ def _java_escape(valor: str) -> str:
 
 def _csharp(method, url, headers, body) -> str:
     linhas = [
+        "using System;",
         "using System.Net.Http;",
         "using System.Text;",
         "",
@@ -226,19 +233,13 @@ def _csharp(method, url, headers, body) -> str:
 
 
 def _go(method, url, headers, body) -> str:
-    linhas = [
-        "package main",
-        "",
-        "import (",
-        '    "fmt"',
-        '    "io"',
-        '    "net/http"',
-        '    "strings"',
-        '    "time"',
-        ")",
-        "",
-        "func main() {",
-    ]
+    # Go recusa compilar com import que ninguem usa, e "strings" so entra em cena quando
+    # existe corpo. Sem separar, todo GET gerado aqui nascia sem compilar.
+    pacotes = ['    "fmt"', '    "io"', '    "net/http"']
+    if body:
+        pacotes.append('    "strings"')
+    pacotes.append('    "time"')
+    linhas = ["package main", "", "import (", *pacotes, ")", "", "func main() {"]
     if body:
         literal = body.replace("`", "` + \"`\" + `")
         linhas.append(f"    corpo := strings.NewReader(`{literal}`)")

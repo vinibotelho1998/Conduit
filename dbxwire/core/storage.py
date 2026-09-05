@@ -148,6 +148,9 @@ def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
         "sortMode": settings.get("sortMode") or "manual",
         "certificates": settings.get("certificates") or [],
         "caFile": settings.get("caFile") or "",
+        # so o contrato do servidor SFTP: host, porta e usuario. Senha e frase da chave
+        # ficam no cofre, exatamente como o valor de variavel secreta.
+        "sftp": settings.get("sftp") or [],
         "globals": _ler(raiz / "globals.yaml").get("values") or [],
         "environments": [],
         "collections": [],
@@ -283,6 +286,7 @@ def gravar_workspace(
             "sortMode": tree.get("sortMode") or "manual",
             "certificates": tree.get("certificates") or [],
             "caFile": tree.get("caFile") or "",
+            "sftp": tree.get("sftp") or [],
         },
     ):
         resumo["escritos"] += 1
