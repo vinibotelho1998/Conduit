@@ -9,9 +9,10 @@ um degrau dela.
 O nome do token diz o papel e nao a cor, entao a mesma folha serve pro tema escuro e pro
 claro. `superficie` continua sendo superficie quando ela e branca.
 
-Contraste conferido contra a WCAG: todo token de texto passa de 4.5 contra o fundo em que
-ele e usado. O antigo FAINT ficava em 3.3 e era usado em texto de 8pt, que e onde mais
-doi.
+Contraste conferido contra a WCAG 2.1. Todo token que carrega informacao passa de 4.5
+contra o fundo em que e usado, conferido por `contraste` aqui mesmo. Os dois que ficam
+entre 3 e 4.5 sao `texto_apagado` e nada mais: ele so pinta controle desligado, que a
+norma dispensa justamente por nao ser leitura obrigatoria.
 """
 
 from __future__ import annotations
@@ -61,127 +62,149 @@ TEMPO = {"rapido": 90, "medio": 150, "lento": 240}
 
 # ------------------------------------------------------------------------------ paletas
 
+# Preto e cinza na base, com um acento so. A regra que sustenta as duas paletas: tudo
+# que e estrutura, ou seja superficie, borda e texto, e cinza neutro de verdade, sem
+# matiz nenhuma. Cor aparece em tres lugares e mais nenhum: no acento, que marca o que
+# responde ao clique; no metodo e no status, que sao dado; e no realce do corpo.
+#
+# Sem acento nenhum a tela vira preto e branco e nada puxa o olho, que foi o erro da
+# primeira tentativa. Com a marca violeta ela competia com o metodo e o status, que foi
+# o erro da anterior. Azul de aco fica no meio: presente, e sem gritar.
+
 ESCURO = {
     "nome": "escuro",
     "claro": False,
-    # superficies, da mais funda pra mais alta
-    "fundo": "#101216",
-    "superficie": "#161920",
-    "superficie_alta": "#1c2028",
-    "elevado": "#232833",
-    "flutuante": "#1e222b",
+    # superficies, da mais funda pra mais alta. Cinza neutro de verdade, sem puxar pro
+    # azul nem pro violeta: qualquer matiz aqui tinge a tela inteira.
+    "fundo": "#0e0e0f",
+    "superficie": "#151516",
+    "superficie_alta": "#1c1c1e",
+    "elevado": "#26262a",
+    "flutuante": "#1e1e21",
     # tracos
-    "borda": "#272c37",
-    "borda_forte": "#333a48",
+    "borda": "#2b2b2f",
+    "borda_forte": "#3d3d43",
     # texto
-    "texto": "#e4e9f1",
-    "texto_medio": "#a7b1c1",
-    "texto_fraco": "#8892a3",
-    "texto_apagado": "#5b6373",
+    "texto": "#ededee",
+    "texto_medio": "#adadb2",
+    "texto_fraco": "#8e8e95",
+    "texto_apagado": "#64646b",
     # marca e estados
-    "marca": "#4da3ff",
-    "marca_clara": "#7ebcff",
-    "marca_tinta": "#0a1220",
-    "marca_fundo": "#18304d",
-    "ok": "#3fd39a",
-    "aviso": "#f5a742",
-    "erro": "#ff6076",
-    "info": "#69b6ff",
+    "marca": "#5b9fd6",
+    "marca_clara": "#7ab6e4",
+    "marca_tinta": "#0a1219",
+    "marca_fundo": "#1d3143",
+    "ok": "#3ecf8e",
+    "aviso": "#efa63c",
+    "erro": "#ff5f70",
+    # 3xx e redirecionamento, nao e sucesso nem falha: cinza claro diz isso melhor que
+    # mais um matiz disputando espaco com o verde e o ambar do lado
+    "info": "#7ab6e4",
     # selecao e foco
-    "selecao": "#1e3350",
-    "selecao_texto": "#2c5c99",
-    "foco": "#5fb0ff",
-    "hover": "#1c2028",
+    "selecao": "#232f3a",
+    "selecao_texto": "#2f4a60",
+    "foco": "#7ab6e4",
+    "hover": "#1c1c1e",
     # cromo
-    "barra_rolagem": "#2f3542",
-    "barra_rolagem_sob": "#3d4553",
-    "sombra": "#00000066",
+    "barra_rolagem": "#37373d",
+    "barra_rolagem_sob": "#4a4a52",
+    "sombra": "#00000080",
 }
 
 CLARO = {
     "nome": "claro",
     "claro": True,
-    "fundo": "#f1f3f7",
+    "fundo": "#f4f4f5",
     "superficie": "#ffffff",
-    "superficie_alta": "#f8fafc",
-    "elevado": "#e9edf3",
+    "superficie_alta": "#fafafa",
+    "elevado": "#ebebec",
     "flutuante": "#ffffff",
-    "borda": "#dde2ea",
-    "borda_forte": "#c2cad6",
-    "texto": "#141922",
-    "texto_medio": "#4d5666",
-    "texto_fraco": "#616a78",
-    "texto_apagado": "#8c95a3",
-    "marca": "#0d6ad4",
-    "marca_clara": "#2a84ea",
+    "borda": "#e3e3e5",
+    "borda_forte": "#c6c6ca",
+    "texto": "#171719",
+    "texto_medio": "#55555c",
+    "texto_fraco": "#68686f",
+    "texto_apagado": "#96969d",
+    "marca": "#1f6fb8",
+    "marca_clara": "#2b84d4",
     "marca_tinta": "#ffffff",
-    "marca_fundo": "#dbeafe",
-    "ok": "#08704b",
-    "aviso": "#a35c00",
-    "erro": "#c62839",
-    "info": "#0d6ad4",
+    "marca_fundo": "#dceafd",
+    "ok": "#0a6c4a",
+    "aviso": "#8a5209",
+    "erro": "#c0273a",
+    "info": "#1f6fb8",
     "selecao": "#dceafd",
-    "selecao_texto": "#b6d5fb",
-    "foco": "#0d6ad4",
-    "hover": "#eef1f6",
-    "barra_rolagem": "#c8cfda",
-    "barra_rolagem_sob": "#aab4c3",
-    "sombra": "#0f172a1f",
+    "selecao_texto": "#c2ddfa",
+    "foco": "#1f6fb8",
+    "hover": "#f1f1f2",
+    "barra_rolagem": "#cfcfd3",
+    "barra_rolagem_sob": "#b0b0b6",
+    "sombra": "#17171a26",
 }
 
 # Sete metodos, sete matizes espacadas no circulo de cor, em duas versoes: a do escuro
 # brilha sobre fundo fundo, a do claro e a mesma matiz escurecida ate passar de 4.5
 # contra o branco. Sem isso o tema claro entrega pilula amarela ilegivel.
+#
+# Aqui a cor fica, e de proposito: metodo e o dado que o olho procura primeiro na
+# arvore e na aba. Como o cromo do app inteiro e cinza, estas sete pilulas e as de
+# status sao praticamente as unicas manchas de cor na tela, e por isso elas saltam.
 METODOS_ESCURO = {
-    "GET": "#38d47a",
-    "POST": "#ff8c42",
-    "PUT": "#4d9bff",
-    "PATCH": "#16d0c4",
-    "DELETE": "#ff4d5e",
-    "HEAD": "#b06bff",
-    "OPTIONS": "#ecc94b",
+    "GET": "#3ecf8e",
+    "POST": "#ff9a3c",
+    "PUT": "#5aa9e6",
+    "PATCH": "#2dd4bf",
+    "DELETE": "#ff5f70",
+    "HEAD": "#9aa5b5",
+    "OPTIONS": "#d9b64a",
 }
 
 METODOS_CLARO = {
-    "GET": "#12833f",
-    "POST": "#b4530a",
-    "PUT": "#1160c4",
-    "PATCH": "#0b7c76",
-    "DELETE": "#c3232f",
-    "HEAD": "#6d35c9",
-    "OPTIONS": "#8a6400",
+    "GET": "#0a6c4a",
+    "POST": "#a85708",
+    "PUT": "#15588f",
+    "PATCH": "#0a7269",
+    "DELETE": "#c0273a",
+    "HEAD": "#4f5967",
+    "OPTIONS": "#836000",
 }
 
 # Realce de sintaxe, por tema. Antes eram oito literais congelados no import do
 # highlight, entao no tema claro o JSON saia em verde neon sobre branco.
+#
+# Corpo de resposta e leitura longa, entao aqui a cor e contida: a chave sai num cinza
+# claro quase branco, que ja e o suficiente pra separar chave de valor, e so o valor
+# ganha matiz. Um JSON com quatro cores fortes cansa em meia hora de leitura.
 CODIGO_ESCURO = {
-    "chave": "#7fd1ff",
-    "texto": "#b5e88f",
-    "numero": "#f7c66b",
-    "palavra": "#c58cff",
-    "sinal": "#8b93a1",
-    "comentario": "#6b7484",
-    "tag": "#7fd1ff",
-    "atributo": "#f7c66b",
-    "variavel": "#4da3ff",
-    "variavel_secreta": "#c084fc",
-    "variavel_sem_dono": "#ff6076",
-    "achado": "#3d5a80",
+    "chave": "#8fc6f0",
+    "texto": "#a5e075",
+    "numero": "#f2c464",
+    "palavra": "#7fd6c4",
+    "sinal": "#8b8b92",
+    "comentario": "#8d8d94",
+    "tag": "#8fc6f0",
+    "atributo": "#f2c464",
+    # A variavel e marca do app dentro do texto do usuario, entao ela e neutra e
+    # negrito. O segredo puxa pro ambar porque ali a cor e aviso, nao decoracao.
+    "variavel": "#5b9fd6",
+    "variavel_secreta": "#efa63c",
+    "variavel_sem_dono": "#ff5f70",
+    "achado": "#2f4a60",
 }
 
 CODIGO_CLARO = {
-    "chave": "#0a5ea8",
+    "chave": "#15588f",
     "texto": "#116b32",
-    "numero": "#9a5b00",
-    "palavra": "#7326b8",
-    "sinal": "#6b7482",
-    "comentario": "#7b8493",
-    "tag": "#0a5ea8",
-    "atributo": "#9a5b00",
-    "variavel": "#0d6ad4",
-    "variavel_secreta": "#7326b8",
-    "variavel_sem_dono": "#c62839",
-    "achado": "#bcd9f7",
+    "numero": "#8f5400",
+    "palavra": "#0a7269",
+    "sinal": "#6c6c73",
+    "comentario": "#6f6f76",
+    "tag": "#15588f",
+    "atributo": "#8f5400",
+    "variavel": "#1f6fb8",
+    "variavel_secreta": "#8a5209",
+    "variavel_sem_dono": "#c0273a",
+    "achado": "#cfe3fa",
 }
 
 PALETAS = {"escuro": ESCURO, "claro": CLARO}

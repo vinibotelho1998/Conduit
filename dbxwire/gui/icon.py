@@ -26,11 +26,14 @@ from PySide6.QtGui import (
 
 ICO_SIZES = (16, 20, 24, 32, 48, 64, 128, 256)
 
-TILE_TOP = "#5cb0ff"
-TILE_BOTTOM = "#2563cf"
-TRACO = "#0b1220"
-BRILHO = "#eaf4ff"
-EDGE = "#8ecbff"
+# Grafite, no mesmo espirito do app: a pastilha e escura e o pulso e claro. Quem separa
+# os dois e o contraste, e nao a matiz, entao o icone continua legivel a 16 pixels e
+# tambem em tema claro, onde uma pastilha colorida virava mancha na barra de tarefas.
+TILE_TOP = "#54545c"
+TILE_BOTTOM = "#1b1b1e"
+TRACO = "#0b0b0c"
+BRILHO = "#fbfbfc"
+EDGE = "#7b7b85"
 
 # Pulso em coordenada normalizada. Versao cheia pros tamanhos grandes e versao com
 # menos vertices pros pequenos, onde vertice demais vira borrao.

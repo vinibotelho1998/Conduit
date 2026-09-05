@@ -13,6 +13,7 @@ import, como o realce de sintaxe, se registra em `ao_trocar` e reconstroi o que 
 from __future__ import annotations
 
 import tempfile
+import weakref
 from pathlib import Path
 
 from . import tokens
@@ -34,6 +35,74 @@ def ao_trocar(funcao) -> None:
     """Registra quem precisa refazer cor cacheada quando o tema muda."""
     if funcao not in _ouvintes:
         _ouvintes.append(funcao)
+
+
+# ------------------------------------------------------- folha propria de cada widget
+
+# Guardadas por referencia fraca: o widget fechado sai da lista sozinho, e o tema nunca
+# vira motivo pra segurar tela morta na memoria.
+_folhas: list = []
+
+
+def estilizar(widget, montar) -> None:
+    """Folha de estilo propria do widget, reescrita a cada troca de tema.
+
+    Um `setStyleSheet` com cor do tema dentro e um texto com a cor ja resolvida, e ele
+    ganha da folha do app inteiro. Entao trocar o tema reescrevia a folha global e nao
+    mexia numa linha do que cada painel tinha escrito pra si: o rodape, a barra da
+    resposta, o cartao de variavel e os dialogos continuavam na paleta antiga ate
+    reabrir o app. Passando por aqui, a folha do widget e remontada junto com a do app.
+
+    `montar` e chamada de novo a cada troca, entao ela precisa ler `theme.X` na hora e
+    nao guardar a cor de fora. Chamar duas vezes pro mesmo widget so troca a receita.
+    """
+    widget.setStyleSheet(montar())
+    for indice, (referencia, _) in enumerate(_folhas):
+        if referencia() is widget:
+            _folhas[indice] = (referencia, montar)
+            return
+    _folhas.append((weakref.ref(widget), montar))
+
+
+# O que nao e folha de estilo mas tambem carrega cor: icone ja desenhado, pixmap montado
+# na mao, cor guardada dentro de um item de lista.
+_ganchos: list = []
+
+
+def ao_trocar_widget(widget, aplicar) -> None:
+    """Roda `aplicar(widget)` agora e de novo a cada troca de tema, enquanto ele viver.
+
+    `estilizar` resolve folha de estilo. Este resolve o resto: um QIcon e um desenho
+    pronto, com a cor ja dentro dele, e limpar o cache de icones nao troca o que ja foi
+    entregue a um botao. Sem isto, os icones da barra da resposta continuavam na cor do
+    tema anterior mesmo com a folha inteira ja trocada.
+    """
+    aplicar(widget)
+    for indice, (referencia, _) in enumerate(_ganchos):
+        if referencia() is widget:
+            _ganchos[indice] = (referencia, aplicar)
+            return
+    _ganchos.append((weakref.ref(widget), aplicar))
+
+
+def _rodar(registro, acao) -> None:
+    vivos = []
+    for referencia, funcao in registro:
+        alvo = referencia()
+        if alvo is None:
+            continue
+        try:
+            acao(alvo, funcao)
+        except RuntimeError:
+            # o lado C++ do widget ja morreu e so sobrou a casca em Python
+            continue
+        vivos.append((referencia, funcao))
+    registro[:] = vivos
+
+
+def _remontar_folhas() -> None:
+    _rodar(_folhas, lambda alvo, montar: alvo.setStyleSheet(montar()))
+    _rodar(_ganchos, lambda alvo, aplicar: aplicar(alvo))
 
 
 # ---------------------------------------------------- nomes antigos, ainda em uso
@@ -135,7 +204,6 @@ def _qss() -> str:
     e = ESPACO
     d = D
 
-    campo = d["altura_campo"]
     linha_grade = d["linha_grade"]
 
     # o azul de selecao de texto precisa aguentar o texto por cima; no claro ele e um
@@ -181,6 +249,11 @@ QToolBar {{
     padding: {e[3]}px {e[4]}px; spacing: {e[4]}px;
 }}
 QToolBar::separator {{ background: {p["borda"]}; width: 1px; margin: {e[3]}px {e[4]}px; }}
+/* Espacador e qualquer widget cru posto na barra. O ponto na frente do nome faz o
+   seletor casar SO com QWidget de verdade, e nao com as subclasses: sem ele, campo e
+   seletor tambem perderiam o fundo. Sem a regra, o espacador herda a cor de fundo da
+   janela e pinta uma laje escura no meio de uma barra que e mais clara que ela. */
+QToolBar > .QWidget {{ background: transparent; }}
 QToolBar QToolButton {{
     background: transparent; border: 1px solid transparent; border-radius: {r["medio"]}px;
     padding: {e[3]}px {e[4]}px; color: {p["texto_medio"]};
@@ -190,6 +263,25 @@ QToolBar QToolButton:pressed {{ background: {p["superficie_alta"]}; }}
 QToolBar QToolButton:checked {{ background: {p["marca_fundo"]}; color: {p["marca"]}; }}
 QToolBar QToolButton:focus {{ border-color: {p["foco"]}; }}
 QToolBar QToolButton::menu-indicator {{ image: none; }}
+
+/* Seletor de workspace. E o unico controle da barra que carrega estado, entao ele tem
+   moldura e os outros nao: sem isso ele lia como mais um botao de acao. A cor do
+   workspace entra como ponto desenhado, e nao como borda, porque borda colorida em
+   controle e a linguagem de campo com foco. */
+QToolBar QToolButton#workspace {{
+    background: {p["superficie_alta"]}; border: 1px solid {p["borda"]};
+    border-radius: {r["medio"]}px; color: {p["texto"]}; font-weight: 600;
+    padding: {e[3]}px {e[7]}px {e[3]}px {e[4]}px; margin-right: {e[3]}px;
+}}
+QToolBar QToolButton#workspace:hover {{
+    background: {p["elevado"]}; border-color: {p["borda_forte"]};
+}}
+QToolBar QToolButton#workspace:pressed {{ background: {p["superficie"]}; }}
+QToolBar QToolButton#workspace:focus {{ border-color: {p["foco"]}; }}
+QToolBar QToolButton#workspace::menu-indicator {{
+    image: url(__CHEVRON__); width: 11px; height: 11px;
+    subcontrol-origin: padding; subcontrol-position: center right; right: {e[3]}px;
+}}
 
 /* ------------------------------------------------------------------------ campos */
 
@@ -246,6 +338,20 @@ QPushButton#salvar {{
 }}
 QPushButton#salvar:hover {{ background: {p["elevado"]}; border-color: {p["borda_forte"]}; }}
 QPushButton#salvar:disabled {{
+    background: transparent; border-color: {p["borda"]}; color: {p["texto_apagado"]};
+}}
+
+/* Acao principal de um dialogo. Nao e cheia de cor como o Send: dentro de uma caixa
+   modal nao existe Send na tela, mas manter uma so linguagem pro botao cheio evita que
+   o olho aprenda duas coisas diferentes pra mesma forma. */
+QPushButton#primario {{
+    background: {p["marca_fundo"]}; border: 1px solid {p["marca"]};
+    color: {p["marca"]}; font-weight: 600;
+}}
+QPushButton#primario:hover {{
+    background: {mistura(p["marca"], p["superficie"], 0.30)}; color: {p["texto"]};
+}}
+QPushButton#primario:disabled {{
     background: transparent; border-color: {p["borda"]}; color: {p["texto_apagado"]};
 }}
 
@@ -343,8 +449,13 @@ QTabBar QToolButton {{
 }}
 QTabBar QToolButton:hover {{ background: {p["elevado"]}; color: {p["texto"]}; }}
 
-/* a lateral tem quatro abas em pouco espaco, entao aperta o respiro horizontal */
-QTabWidget#sideTabs > QTabBar::tab {{ padding: {e[4]}px {e[4]}px; margin-right: 0px; }}
+/* A lateral tem CINCO abas numa coluna de 340 pixels. Com o respiro dos campos normais
+   a quinta nao cabia e o Qt escondia ela atras de duas setinhas de rolagem, que e a
+   pior forma de esconder uma aba: nada indica o que sumiu. Meio ponto menor e o respiro
+   apertado fazem as cinco caberem. */
+QTabWidget#sideTabs > QTabBar::tab {{
+    padding: {e[4]}px {e[3]}px; margin-right: 0px; font-size: {FONTE["miudo"]}pt;
+}}
 
 /* --------------------------------------------------------------- divisor e rolagem */
 
@@ -593,6 +704,8 @@ def aplicar(app, nome: str | None = None, densidade: str | None = None) -> None:
             ouvinte()
         except Exception:  # noqa: BLE001
             pass
+
+    _remontar_folhas()
 
     if app is not None:
         app.setPalette(paleta_qt())
