@@ -100,14 +100,14 @@ def _brasilapi() -> dict:
                         f"{base}/ddd/v1/{{{{ddd}}}}",
                         docs="Estado e lista de cidades atendidas pelo DDD.",
                     ),
-        req(
-                "Municipios por UF",
-                "GET",
-                f"{base}/ibge/municipios/v1/{{{{uf}}}}",
-                docs="uf existe em dois escopos de proposito: SP nas globais e MT no ambiente. "
-                "O ambiente ganha, entao vem MT. Passe o mouse na variavel azul da url pra ver "
-                "de onde ela veio e quem perdeu.",
-            ),
+                    req(
+                        "Municipios por UF",
+                        "GET",
+                        f"{base}/ibge/municipios/v1/{{{{uf}}}}",
+                        docs="uf existe em dois escopos de proposito: SP nas globais e MT no "
+                        "ambiente. O ambiente ganha, entao vem MT. Passe o mouse na variavel "
+                        "realcada na url pra ver de onde ela veio e quem perdeu a disputa.",
+                    ),
                     req("Estados do IBGE", "GET", f"{base}/ibge/uf/v1"),
                 ],
             ),
@@ -125,15 +125,16 @@ def _brasilapi() -> dict:
                         "GET",
                         f"{base}/fipe/tabelas/v1",
                         docs="Codigo da tabela de referencia usado nas consultas de preco.\n"
-                        "Aviso: em 24/08/2026 a origem da FIPE estava devolvendo 500. Se falhar, "
-                        "e o provedor, nao o Dbx Wire.",
+                        "A origem da FIPE cai de vez em quando e devolve 500. Quando isso "
+                        "acontecer, o erro e de la, nao daqui: a aba Enviado mostra que a "
+                        "chamada saiu certa.",
                     ),
                     req(
                         "Preco por codigo FIPE",
                         "GET",
                         f"{base}/fipe/preco/v1/{{{{codigoFipe}}}}",
                         docs="Preco medio do veiculo. Aceita o parametro tabela_referencia.\n"
-                        "Aviso: depende da mesma origem da FIPE que estava fora em 24/08/2026.",
+                        "Depende da mesma origem da consulta de tabelas.",
                     ),
                 ],
             ),
@@ -170,7 +171,8 @@ def _brasilapi() -> dict:
                         "Feriados nacionais",
                         "GET",
                         f"{base}/feriados/v1/{{{{ano}}}}",
-                        docs="Util pra conferir dia util, tipo a grade de um banco.",
+                        docs="Util pra decidir se uma data e dia util antes de agendar "
+                        "processamento.",
                     ),
                 ],
             ),
@@ -252,7 +254,7 @@ def _github() -> dict:
                 "GET",
                 f"{base}/search/repositories",
                 headers=headers,
-                params=[kv("q", "apache language:java"), kv("sort", "stars"), kv("per_page", "5")],
+                params=[kv("q", "http client language:python"), kv("sort", "stars"), kv("per_page", "5")],
             ),
             req(
                 "Limite de uso",
@@ -299,13 +301,20 @@ def _laboratorio() -> dict:
             folder(
                 "basico",
                 items=[
-                    req("GET com query", "GET", f"{base}/get", params=[kv("uf", "MT"), kv("origem", "dbxwire")]),
+                    req(
+                        "GET com query",
+                        "GET",
+                        f"{base}/get",
+                        params=[kv("uf", "MT"), kv("origem", "dbxwire")],
+                        docs="O httpbin devolve de volta o que recebeu. Serve pra conferir se "
+                        "a variavel foi resolvida antes de sair.",
+                    ),
                     req(
                         "POST JSON",
                         "POST",
                         f"{base}/post",
                         headers=[kv("Content-Type", "application/json")],
-                        body=json_body('{\n  "plate": "ABC1D23",\n  "renavam": "00123456789"\n}'),
+                        body=json_body('{\n  "id": 1042,\n  "nome": "pedido de teste",\n  "valor": 199.9\n}'),
                     ),
                     req(
                         "POST form urlencoded",
@@ -356,8 +365,9 @@ def _laboratorio() -> dict:
                         "Basic auth",
                         "GET",
                         f"{base}/basic-auth/dbx/segredo",
-                        headers=[kv("Authorization", "Basic ZGJ4OnNlZ3JlZG8=")],
-                        docs="Enquanto a aba Auth nao chega, da pra montar na mao pelo header.",
+                        docs="A aba Auth resolve isso: escolha Basic e preencha usuario e "
+                        "senha, em vez de montar o header na mao. O usuario e dbx e a senha "
+                        "e segredo.",
                     ),
                     req(
                         "Bearer",
@@ -374,7 +384,7 @@ def _laboratorio() -> dict:
 
 def examples_tree() -> dict:
     globais = [
-        kv("operador", "vinicius"),
+        kv("operador", "time-de-integracao"),
         kv("uf", "SP"),
         kv("cidade", "Sao Paulo"),
         kv("timeoutPadrao", "30"),
@@ -393,11 +403,13 @@ def examples_tree() -> dict:
         kv("logradouro", "Historiador"),
         kv("cnpj", "19131243000197"),
         kv("codigoFipe", "001004-9"),
+        # data fixa de proposito: a cotacao de um dia que ja fechou nao muda, entao o
+        # exemplo devolve o mesmo resultado hoje e daqui a um ano
         kv("dataCambio", "2026-08-21"),
         kv("postId", "1"),
-        kv("githubUser", "apache"),
-        kv("owner", "apache"),
-        kv("repo", "mule"),
+        kv("githubUser", "vinibotelho1998"),
+        kv("owner", "vinibotelho1998"),
+        kv("repo", "dbx-wire"),
         kv("lat", "-15.6014"),
         kv("lon", "-56.0979"),
         secret("tokenExemplo", "token-de-mentira-so-pra-demonstrar"),
@@ -442,7 +454,7 @@ def ensure_examples(force: bool = False) -> str:
     existe = any(entry["id"] == EXAMPLES_ID for entry in registry["workspaces"])
 
     if not existe:
-        ws.create_workspace("Exemplos", "#4da3ff")
+        ws.create_workspace("Exemplos", ws.COLORS[0])
     elif not force:
         return EXAMPLES_ID
 

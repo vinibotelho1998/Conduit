@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core import dinamicas
 from . import theme
 from .highlight import CodeHighlighter, VarTooltip
 from .examples_panel import ExamplesPanel
@@ -138,7 +139,7 @@ class RequestEditor(QWidget):
         self.url_hl = CodeHighlighter(self.url.document(), "none")
         VarTooltip(self.url, lambda: self._variables)
 
-        self.send_btn = QPushButton("Send")
+        self.send_btn = QPushButton("Enviar")
         self.send_btn.setObjectName("send")
         self.send_btn.setFixedHeight(38)
         self.send_btn.clicked.connect(self.send_requested.emit)
@@ -427,6 +428,12 @@ class RequestEditor(QWidget):
         nomes: list[str] = []
         for texto in alvos:
             for nome in VAR_NAMES.findall(texto):
+                # {{$guid}} e as outras geradas na hora nao entram: elas nao moram em
+                # escopo nenhum, entao nao ha o que faltar nem o que preencher. Antes
+                # elas caiam aqui, viravam variavel vazia no ambiente e o aviso amarelo
+                # ficava aceso pra sempre num request que estava certo.
+                if dinamicas.eh_dinamica(nome) and dinamicas.conhecida(nome):
+                    continue
                 if nome not in nomes:
                     nomes.append(nome)
         return nomes
@@ -444,7 +451,7 @@ class RequestEditor(QWidget):
         if faltando:
             self._alvo_aviso = faltando[0]
             self.aviso.mostrar(
-                f"nao existe em nenhum escopo:  {', '.join(faltando)}", theme.ERR, "criar"
+                f"nao existe em nenhum escopo:  {', '.join(faltando)}", "erro", "criar"
             )
             return
 
@@ -456,7 +463,7 @@ class RequestEditor(QWidget):
         if vazias:
             self._alvo_aviso = vazias[0]
             self.aviso.mostrar(
-                f"definida mas sem valor:  {', '.join(vazias)}", theme.WARN, "preencher"
+                f"definida mas sem valor:  {', '.join(vazias)}", "aviso", "preencher"
             )
         else:
             self._alvo_aviso = ""
@@ -527,4 +534,4 @@ class RequestEditor(QWidget):
 
     def set_sending(self, sending: bool) -> None:
         self.send_btn.setEnabled(not sending)
-        self.send_btn.setText("Enviando" if sending else "Send")
+        self.send_btn.setText("Enviando" if sending else "Enviar")

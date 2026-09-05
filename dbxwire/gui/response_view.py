@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
@@ -29,7 +30,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QTextBrowser,
     QTextEdit,
     QToolButton,
@@ -78,21 +78,26 @@ def header_value(headers, nome: str) -> str:
 
 
 def flat_button(texto: str, dica: str = "", icone=None) -> QToolButton:
-    """Acao da barra da resposta. Com icone, o texto vira so o tooltip."""
+    """Acao da barra da resposta. Com icone, o texto vira so o tooltip.
+
+    `icone` e a funcao que desenha, e nao o desenho pronto: o icone carrega a cor do
+    tema dentro dele, entao ele precisa ser refeito quando o tema muda.
+    """
     btn = QToolButton()
     if icone is not None:
-        btn.setIcon(icone)
         btn.setIconSize(QSize(18, 18))
         btn.setAutoRaise(True)
+        theme.ao_trocar_widget(btn, lambda alvo, desenhar=icone: alvo.setIcon(desenhar()))
     else:
         btn.setText(texto)
     btn.setToolTip(dica or texto)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setStyleSheet(
-        f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
+    theme.estilizar(
+        btn,
+        lambda: f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
         f" padding: 4px 7px; border-radius: 8px; }}"
         f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}"
-        f"QToolButton:checked {{ background: {theme.RAISE}; color: {theme.ACCENT}; }}"
+        f"QToolButton:checked {{ background: {theme.RAISE}; color: {theme.ACCENT}; }}",
     )
     return btn
 
@@ -151,15 +156,26 @@ class Pill(QLabel):
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.hide()
 
-    def set_status(self, texto: str, cor: str, fundo: str) -> None:
+    def set_status(self, texto: str, status, ok: bool) -> None:
+        """Recebe o status, e nao a cor: a cor se calcula na hora de pintar.
+
+        Passar a cor pronta congelava a pilula na paleta de quando a resposta chegou, e
+        trocar de tema deixava um retangulo do tema antigo em cima do corpo novo.
+        """
         self.setText(texto)
-        # `{cor}44` nao e RGBA no Qt, e ARGB: em todo 4xx e 5xx a borda saia numa cor
-        # que nao tinha nada a ver com o status. tokens.alfa devolve rgba de verdade.
-        self.setStyleSheet(
-            f"color: {cor}; background: {fundo};"
-            f" border: 1px solid {tokens.alfa(cor, 0.30)};"
-            f" border-radius: {tokens.RAIO['medio']}px; padding: 3px 12px; font-weight: 700;"
-        )
+
+        def folha(s=status, o=ok):
+            # `{cor}44` nao e RGBA no Qt, e ARGB: em todo 4xx e 5xx a borda saia numa cor
+            # que nao tinha nada a ver com o status. tokens.alfa devolve rgba de verdade.
+            cor, fundo = theme.tom_do_status(s, o)
+            return (
+                f"color: {cor}; background: {fundo};"
+                f" border: 1px solid {tokens.alfa(cor, 0.30)};"
+                f" border-radius: {tokens.RAIO['medio']}px; padding: 3px 12px;"
+                f" font-weight: 700;"
+            )
+
+        theme.estilizar(self, folha)
         self.show()
 
 
@@ -355,6 +371,7 @@ def parse_cookies(headers) -> list[list[str]]:
 
 class ResponseView(QWidget):
     salvar_exemplo = Signal()
+    copiar_curl_completo = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -377,7 +394,7 @@ class ResponseView(QWidget):
         cl.addWidget(self.espera)
 
         self.metricas = Elastico()
-        self.metricas.setStyleSheet(f"color: {theme.DIM};")
+        theme.estilizar(self.metricas, lambda: f"color: {theme.DIM};")
         cl.addWidget(self.metricas)
 
         # quando o que esta na tela e um exemplo salvo, e nao uma chamada de agora
@@ -393,27 +410,39 @@ class ResponseView(QWidget):
         )
         cl.addWidget(self.url_final, 1)
 
-        self.btn_busca = flat_button("", "procurar no corpo (Ctrl+F)", icons.icone_lupa())
+        self.btn_busca = flat_button("", "procurar no corpo (Ctrl+F)", icons.icone_lupa)
         self.btn_busca.setCheckable(True)
         self.btn_busca.toggled.connect(self._alternar_busca)
-        self.btn_wrap = flat_button("", "quebrar linha", icons.icone_quebra())
+        self.btn_wrap = flat_button("", "quebrar linha", icons.icone_quebra)
         self.btn_wrap.setCheckable(True)
         self.btn_wrap.toggled.connect(self._alternar_wrap)
-        self.btn_copiar = flat_button("", "copiar o corpo da resposta", icons.icone_copiar())
+        self.btn_copiar = flat_button("", "copiar o corpo da resposta", icons.icone_copiar)
         self.btn_copiar.clicked.connect(self._copiar)
-        self.btn_salvar = flat_button("", "salvar o corpo em arquivo", icons.icone_baixar())
+        self.btn_salvar = flat_button("", "salvar o corpo em arquivo", icons.icone_baixar)
         self.btn_salvar.clicked.connect(self._salvar)
         self.btn_exemplo = flat_button(
-            "", "guardar esta resposta como exemplo do request", icons.icone_marcador()
+            "", "guardar esta resposta como exemplo do request", icons.icone_marcador
         )
         self.btn_exemplo.clicked.connect(self.salvar_exemplo.emit)
-        for b in (self.btn_busca, self.btn_wrap, self.btn_copiar, self.btn_salvar, self.btn_exemplo):
+
+        # Curl completo, com valor de variavel e credencial em claro, pronto pra colar
+        # num terminal. Fica separado do Ctrl+Shift+C, que troca o segredo por {{nome}}:
+        # sao usos diferentes, e o seguro continua sendo o do atalho.
+        self.btn_curl = flat_button(
+            "",
+            "copiar curl completo, com variaveis e credenciais resolvidas",
+            icons.icone_terminal,
+        )
+        self.btn_curl.clicked.connect(self.copiar_curl_completo.emit)
+
+        for b in (self.btn_busca, self.btn_wrap, self.btn_curl, self.btn_copiar,
+                  self.btn_salvar, self.btn_exemplo):
             cl.addWidget(b)
         root.addWidget(cabeca)
 
         self.linha = QFrame()
         self.linha.setFixedHeight(1)
-        self.linha.setStyleSheet(f"background: {theme.BORDER};")
+        theme.estilizar(self.linha, lambda: f"background: {theme.BORDER};")
         root.addWidget(self.linha)
 
         self.tabs = BadgeTabs()
@@ -496,9 +525,10 @@ class ResponseView(QWidget):
         if not nome:
             return
         self.marca.setText(f"exemplo: {nome}")
-        self.marca.setStyleSheet(
-            f"color: {theme.ACCENT}; background: rgba(77,163,255,38); border-radius: 8px;"
-            f" padding: 1px 9px; font-size: 8pt; font-weight: 600;"
+        theme.estilizar(
+            self.marca,
+            lambda: f"color: {theme.ACCENT}; background: {tokens.alfa(theme.ACCENT, 0.15)};"
+            f" border-radius: 8px; padding: 1px 9px; font-size: 8pt; font-weight: 600;",
         )
 
     def show_response(self, data: dict, sent: dict | None = None) -> None:
@@ -507,12 +537,10 @@ class ResponseView(QWidget):
         self._marcar_exemplo(data.get("exemplo") or "")
         ok = bool(data.get("ok"))
         status = data.get("status")
-        cor, fundo = status_tone(status, ok)
-
         if ok:
-            self.pill.set_status(f"{status} {data.get('reason', '')}".strip(), cor, fundo)
+            self.pill.set_status(f"{status} {data.get('reason', '')}".strip(), status, True)
         else:
-            self.pill.set_status("falhou", cor, fundo)
+            self.pill.set_status("falhou", status, False)
 
         headers = data.get("headers") or []
         content_type = header_value(headers, "content-type").split(";")[0]
@@ -564,12 +592,11 @@ class ResponseView(QWidget):
 
         self._trocar(self.enviado_box, self._painel_enviado(sent))
 
-        if self.tabs.currentIndex() == 2 and not eh_html:
+        if self.tabs.currentIndex() == 2 and not (eh_html or eh_imagem):
             self.tabs.setCurrentIndex(0)
 
 
     def _montar_preview(self, data: dict, eh_html: bool, eh_imagem: bool, corpo: str) -> None:
-        indice = self.tabs.indexOf(self.preview_box)
         if eh_imagem and data.get("content"):
             imagem = QPixmap()
             if imagem.loadFromData(data["content"]):
@@ -703,12 +730,39 @@ class ResponseView(QWidget):
         if self._dados:
             QGuiApplication.clipboard().setText(self.pretty.edit.toPlainText())
 
+    # Sufixo pelo content-type. Sem isso toda resposta saia .txt, e imagem ou pdf
+    # gravados como texto viravam arquivo ilegivel.
+    SUFIXOS = {
+        "application/json": ".json", "text/json": ".json",
+        "application/xml": ".xml", "text/xml": ".xml",
+        "text/html": ".html", "text/csv": ".csv", "text/plain": ".txt",
+        "application/pdf": ".pdf", "application/zip": ".zip",
+        "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif",
+        "image/webp": ".webp", "image/svg+xml": ".svg",
+    }
+
     def _salvar(self) -> None:
         if not self._dados:
             return
-        content_type = header_value(self._dados.get("headers") or [], "content-type")
-        sufixo = ".json" if "json" in content_type else ".xml" if "xml" in content_type else ".txt"
+        tipo = header_value(self._dados.get("headers") or [], "content-type").split(";")[0].strip().lower()
+        sufixo = self.SUFIXOS.get(tipo)
+        if sufixo is None:
+            sufixo = ".json" if "json" in tipo else ".xml" if "xml" in tipo else ".txt"
+
+        bruto = self._dados.get("content")
+        binario = bool(bruto) and not tipo.startswith("text/") and "json" not in tipo and "xml" not in tipo
+
         destino, _ = QFileDialog.getSaveFileName(self, "Salvar resposta", f"resposta{sufixo}")
-        if destino:
-            with open(destino, "w", encoding="utf-8") as arquivo:
-                arquivo.write(self.pretty.edit.toPlainText())
+        if not destino:
+            return
+        try:
+            if binario:
+                # imagem, pdf e afins saem byte a byte como vieram. So texto passa pelo
+                # que esta na tela, que e a versao ja formatada.
+                Path(destino).write_bytes(bruto)
+            else:
+                Path(destino).write_text(self.pretty.edit.toPlainText(), encoding="utf-8")
+        except OSError as exc:
+            janela = self.window()
+            if hasattr(janela, "statusBar"):
+                janela.statusBar().showMessage(f"nao consegui gravar: {exc}", 6000)

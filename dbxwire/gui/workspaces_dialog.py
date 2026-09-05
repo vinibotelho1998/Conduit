@@ -1,180 +1,340 @@
-"""Gerenciador de workspaces: renomear, cor, duplicar, abrir pasta e excluir."""
+"""Gerenciador de workspaces: trocar, renomear, cor, duplicar, abrir pasta e excluir.
+
+Era uma tabela de cinco colunas com seis botoes iguais embaixo. Tabela e a forma certa
+pra comparar muitos valores do mesmo tipo, e aqui nao e isso: sao poucos itens, cada um
+com um nome, uma cor e um resumo em prosa. Cartao le melhor esse formato, e libera a
+coluna do "Ativo", que existia so pra escrever a palavra sim.
+
+Os botoes tambem tinham todos o mesmo peso, inclusive o de excluir. Agora abrir e a acao
+principal, o resto e secundario e o destrutivo fica sozinho do outro lado da barra.
+"""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from ..core import workspaces as ws
-from . import theme
+from . import icons, theme, tokens
 from .request_editor import mono
 
+PAPEL_ID = Qt.ItemDataRole.UserRole
 
-def bolinha(cor: str) -> QPixmap:
-    pix = QPixmap(28, 14)
-    pix.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pix)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(cor))
-    painter.drawEllipse(9, 3, 9, 9)
-    painter.end()
-    return pix
+# Os nomes que aparecem no menu de cor, na mesma ordem de ws.COLORS.
+NOMES_DE_COR = ["cinza", "verde", "laranja", "azul", "vermelho", "turquesa"]
+
+
+def menu_de_cores(pai, atual: str, escolher) -> QMenu:
+    """Menu com as cores desenhadas, no lugar de uma lista de nomes soltos.
+
+    Escolher cor numa caixa que lista as palavras azul, verde e laranja obriga a pessoa a
+    imaginar o resultado. Com o circulo desenhado ao lado, ela ve.
+    """
+    menu = QMenu(pai)
+    for nome, cor in zip(NOMES_DE_COR, ws.COLORS):
+        acao = QAction(nome, menu)
+        acao.setIcon(icons.ponto_cor(cor, 14))
+        acao.setCheckable(True)
+        acao.setChecked(cor == atual)
+        acao.triggered.connect(lambda _=False, c=cor: escolher(c))
+        menu.addAction(acao)
+    return menu
+
+
+class Cartao(QWidget):
+    """Uma linha da lista: ponto na cor, nome, marca de ativo e o resumo embaixo."""
+
+    cor_pedida = Signal(str)
+
+    def __init__(self, entrada: dict, ativo: bool, resumo: str, parent=None):
+        super().__init__(parent)
+        self.entrada = entrada
+
+        linha = QHBoxLayout(self)
+        linha.setContentsMargins(10, 7, 10, 7)
+        linha.setSpacing(10)
+
+        self.ponto = QToolButton()
+        self.ponto.setObjectName("silencioso")
+        self.ponto.setIconSize(QSize(16, 16))
+        self.ponto.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ponto.setToolTip("Trocar a cor deste workspace")
+        cor = entrada.get("color") or theme.DIM
+        theme.ao_trocar_widget(self.ponto, lambda alvo, c=cor: alvo.setIcon(icons.ponto_cor(c, 16)))
+        self.ponto.clicked.connect(self._abrir_cores)
+        linha.addWidget(self.ponto, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        coluna = QVBoxLayout()
+        coluna.setContentsMargins(0, 0, 0, 0)
+        coluna.setSpacing(2)
+
+        topo = QHBoxLayout()
+        topo.setContentsMargins(0, 0, 0, 0)
+        topo.setSpacing(8)
+
+        nome = QLabel(entrada.get("name") or entrada["id"])
+        theme.estilizar(nome, lambda: f"color: {theme.TEXT}; font-weight: 600; font-size: 10pt;")
+        topo.addWidget(nome)
+
+        if ativo:
+            marca = QLabel("aberto")
+            theme.estilizar(
+                marca,
+                lambda: f"color: {theme.OK}; background: {tokens.alfa(theme.OK, 0.15)};"
+                f" border-radius: 8px; padding: 1px 8px; font-size: 8pt; font-weight: 600;",
+            )
+            topo.addWidget(marca)
+        topo.addStretch(1)
+        coluna.addLayout(topo)
+
+        detalhe = QLabel(resumo)
+        detalhe.setObjectName("hint")
+        theme.estilizar(detalhe, lambda: f"color: {theme.FAINT}; font-size: 8pt;")
+        coluna.addWidget(detalhe)
+        linha.addLayout(coluna, 1)
+
+        pasta = QLabel(Path(entrada.get("path") or "").name)
+        pasta.setFont(mono(8))
+        pasta.setToolTip(str(entrada.get("path") or ""))
+        theme.estilizar(pasta, lambda: f"color: {theme.FAINT};")
+        linha.addWidget(pasta, 0, Qt.AlignmentFlag.AlignVCenter)
+
+    def _abrir_cores(self) -> None:
+        menu = menu_de_cores(self, self.entrada.get("color") or "", self.cor_pedida.emit)
+        menu.exec(self.ponto.mapToGlobal(self.ponto.rect().bottomLeft()))
 
 
 class WorkspacesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Workspaces")
-        self.resize(820, 520)
+        self.resize(720, 480)
 
         raiz = QVBoxLayout(self)
-        raiz.setContentsMargins(16, 14, 16, 14)
-        raiz.setSpacing(10)
+        raiz.setContentsMargins(18, 16, 18, 14)
+        raiz.setSpacing(12)
+
+        cabecalho = QHBoxLayout()
+        cabecalho.setContentsMargins(0, 0, 0, 0)
+        titulo = QLabel("Workspaces")
+        theme.estilizar(titulo, lambda: f"font-size: 15pt; font-weight: 700; color: {theme.TEXT};")
+        cabecalho.addWidget(titulo)
+        cabecalho.addStretch(1)
+
+        self.btn_novo = QPushButton("Novo workspace")
+        self.btn_novo.clicked.connect(self.criar)
+        cabecalho.addWidget(self.btn_novo)
+        raiz.addLayout(cabecalho)
 
         texto = QLabel(
-            "Cada workspace e uma pasta isolada, com collections, ambientes, cofre e "
-            "historico proprios. Nada vaza de um pro outro."
+            "Cada um e uma pasta isolada, com collections, ambientes, cofre e historico "
+            "proprios. Nada vaza de um pro outro."
         )
         texto.setObjectName("hint")
         texto.setWordWrap(True)
         raiz.addWidget(texto)
 
-        self.tabela = QTableWidget(0, 5)
-        self.tabela.setHorizontalHeaderLabels(["", "Nome", "Conteudo", "Pasta", "Ativo"])
-        self.tabela.verticalHeader().setVisible(False)
-        self.tabela.setShowGrid(False)
-        self.tabela.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tabela.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.tabela.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tabela.setWordWrap(False)
-        cabecalho = self.tabela.horizontalHeader()
-        cabecalho.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        cabecalho.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.tabela.setColumnWidth(0, 34)
-        self.tabela.setColumnWidth(1, 200)
-        self.tabela.setColumnWidth(3, 190)
-        self.tabela.setColumnWidth(4, 70)
-        self.tabela.itemDoubleClicked.connect(lambda *_: self.renomear())
-        raiz.addWidget(self.tabela, 1)
+        self.lista = QListWidget()
+        self.lista.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.lista.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.lista.setUniformItemSizes(False)
+        theme.estilizar(
+            self.lista,
+            lambda: f"QListWidget {{ background: {theme.PANEL};"
+            f" border: 1px solid {theme.BORDER}; border-radius: 10px; padding: 5px;"
+            f" outline: 0; }}"
+            f"QListWidget::item {{ border-radius: 7px; margin: 1px 2px; }}"
+            f"QListWidget::item:hover {{ background: {theme.PANEL2}; }}"
+            f"QListWidget::item:selected {{ background: {theme.SEL}; }}",
+        )
+        self.lista.itemDoubleClicked.connect(lambda *_: self.usar())
+        self.lista.itemSelectionChanged.connect(self._ajustar_botoes)
+        self.lista.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.lista.customContextMenuRequested.connect(self._menu)
+        raiz.addWidget(self.lista, 1)
 
         barra = QHBoxLayout()
         barra.setSpacing(6)
+
+        self.btn_usar = QPushButton("Abrir este")
+        self.btn_usar.setObjectName("primario")
+        self.btn_usar.setToolTip("Tambem da pra abrir com duplo clique no cartao")
+        self.btn_usar.clicked.connect(self.usar)
+        barra.addWidget(self.btn_usar)
+
+        # um respiro depois da acao principal: sem ele os cinco botoes leem como uma
+        # fila so, e o olho nao separa o que abre do que so ajusta
+        barra.addSpacing(10)
+
+        self.secundarios = []
         for rotulo, alvo in (
             ("Renomear", self.renomear),
-            ("Trocar cor", self.trocar_cor),
+            ("Cor", self.trocar_cor),
             ("Duplicar", self.duplicar),
             ("Abrir pasta", self.abrir_pasta),
-            ("Usar este", self.usar),
         ):
             botao = QPushButton(rotulo)
             botao.clicked.connect(alvo)
             barra.addWidget(botao)
+            self.secundarios.append(botao)
         barra.addStretch(1)
 
+        # sozinho do outro lado da barra: acao que nao se desfaz nao pode ficar
+        # encostada nas que se desfazem
         self.btn_excluir = QPushButton("Excluir")
-        self.btn_excluir.setStyleSheet(f"QPushButton {{ color: {theme.ERR}; }}")
+        self.btn_excluir.setObjectName("perigo")
         self.btn_excluir.clicked.connect(self.excluir)
         barra.addWidget(self.btn_excluir)
         raiz.addLayout(barra)
 
+        # Resumo e Fechar dividem a mesma linha. Empilhados, viravam duas faixas de
+        # rodape embaixo da barra de acoes, e o caminho longo ainda quebrava em duas
+        # linhas: tres alturas de texto pra dizer onde fica a pasta.
+        rodape = QHBoxLayout()
+        rodape.setSpacing(10)
+
         self.resumo = QLabel("")
         self.resumo.setObjectName("hint")
-        raiz.addWidget(self.resumo)
+        self.resumo.setWordWrap(False)
+        self.resumo.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        rodape.addWidget(self.resumo, 1)
 
         botoes = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        botoes.button(QDialogButtonBox.StandardButton.Close).setText("Fechar")
         botoes.rejected.connect(self.reject)
         botoes.accepted.connect(self.accept)
-        raiz.addWidget(botoes)
+        rodape.addWidget(botoes, 0)
+        raiz.addLayout(rodape)
 
         self.recarregar()
+        # o teclado nasce na lista, e nao no primeiro botao do cabecalho: o anel de foco
+        # num botao de acao logo na abertura sugere que ele e o que voce deve apertar
+        self.lista.setFocus()
 
+    # ------------------------------------------------------------------------- montagem
 
     def recarregar(self, selecionar: str | None = None) -> None:
         registro = ws.list_workspaces()
         self.entradas = registro["workspaces"]
         ativo = registro.get("active")
 
-        self.tabela.setRowCount(len(self.entradas))
-        for indice, entrada in enumerate(self.entradas):
-            cor = QTableWidgetItem()
-            cor.setData(Qt.ItemDataRole.DecorationRole, bolinha(entrada.get("color") or theme.DIM))
-            self.tabela.setItem(indice, 0, cor)
-
-            nome = QTableWidgetItem(entrada.get("name") or entrada["id"])
-            nome.setData(Qt.ItemDataRole.UserRole, entrada["id"])
-            self.tabela.setItem(indice, 1, nome)
-
-            self.tabela.setItem(indice, 2, QTableWidgetItem(self._contar(entrada)))
-
-            # so o nome da pasta na tela. O caminho inteiro nao cabe e nao ajuda,
-            # entao vai pra dica e tem o botao Abrir pasta ao lado
-            caminho = Path(entrada.get("path") or "")
-            pasta = QTableWidgetItem(caminho.name)
-            pasta.setFont(mono(8))
-            pasta.setForeground(QColor(theme.FAINT))
-            pasta.setToolTip(str(caminho))
-            self.tabela.setItem(indice, 3, pasta)
-
-            marca = QTableWidgetItem("sim" if entrada["id"] == ativo else "")
-            marca.setForeground(QColor(theme.OK))
-            self.tabela.setItem(indice, 4, marca)
-            self.tabela.setRowHeight(indice, theme.medida("linha_tabela"))
+        self.lista.clear()
+        for entrada in self.entradas:
+            cartao = Cartao(entrada, entrada["id"] == ativo, self._contar(entrada))
+            cartao.cor_pedida.connect(
+                lambda cor, wid=entrada["id"]: self._aplicar_cor(wid, cor)
+            )
+            item = QListWidgetItem()
+            item.setData(PAPEL_ID, entrada["id"])
+            item.setSizeHint(cartao.sizeHint())
+            self.lista.addItem(item)
+            self.lista.setItemWidget(item, cartao)
 
         alvo = selecionar or ativo
-        for indice, entrada in enumerate(self.entradas):
-            if entrada["id"] == alvo:
-                self.tabela.selectRow(indice)
+        for indice in range(self.lista.count()):
+            if self.lista.item(indice).data(PAPEL_ID) == alvo:
+                self.lista.setCurrentRow(indice)
                 break
 
-        self.resumo.setText(f"{len(self.entradas)} workspaces em {ws.WORKSPACES_DIR}")
-        self.btn_excluir.setEnabled(len(self.entradas) > 1)
+        # So a contagem no rotulo. O caminho inteiro vai pro balao e pro botao Abrir
+        # pasta: escrito na tela ele ocupava duas linhas e ainda empurrava a largura do
+        # dialogo, porque QLabel entrega o texto inteiro como largura minima.
+        plural = "workspace" if len(self.entradas) == 1 else "workspaces"
+        self.resumo.setText(
+            f"{len(self.entradas)} {plural} em {Path(ws.WORKSPACES_DIR).parent.name}"
+        )
+        self.resumo.setToolTip(str(ws.WORKSPACES_DIR))
+        self._ajustar_botoes()
+
+    def _ajustar_botoes(self) -> None:
+        entrada = self.selecionado()
+        tem = entrada is not None
+        aberto = tem and entrada["id"] == ws.list_workspaces().get("active")
+        for botao in self.secundarios:
+            botao.setEnabled(tem)
+        self.btn_usar.setEnabled(tem and not aberto)
+        self.btn_usar.setText("Ja esta aberto" if aberto else "Abrir este")
+        # o ultimo workspace nao se exclui: sem nenhum, o app abriria numa tela sem raiz
+        self.btn_excluir.setEnabled(tem and len(self.entradas) > 1)
+        self.btn_excluir.setToolTip(
+            "" if len(self.entradas) > 1 else "Nao da pra excluir o unico workspace"
+        )
 
     @staticmethod
     def _contar(entrada: dict) -> str:
         raiz = Path(entrada.get("path") or "")
         colecoes = raiz / "collections"
         if not colecoes.exists():
-            return "vazio"
+            return "ainda vazio"
         requests = len([p for p in colecoes.rglob("*.yaml") if not p.name.startswith("_")])
-        pastas = len([p for p in colecoes.rglob("_folder.yaml")])
-        cols = len([p for p in colecoes.glob("*/_collection.yaml")])
-        segredos = 0
-        cofre = raiz / ".secrets" / "vault.dbx"
-        if cofre.exists():
-            segredos = 1
-        partes = [f"{cols} collections", f"{requests} requests"]
+        pastas = len(list(colecoes.rglob("_folder.yaml")))
+        cols = len(list(colecoes.glob("*/_collection.yaml")))
+        if not cols and not requests:
+            return "ainda vazio"
+
+        def conta(quantos: int, um: str, muitos: str) -> str:
+            return f"{quantos} {um if quantos == 1 else muitos}"
+
+        partes = [conta(cols, "collection", "collections"), conta(requests, "request", "requests")]
         if pastas:
-            partes.insert(1, f"{pastas} pastas")
-        if segredos:
+            partes.insert(1, conta(pastas, "pasta", "pastas"))
+        if (raiz / ".secrets" / "vault.dbx").exists():
             partes.append("cofre")
-        return ", ".join(partes)
+        return "   ·   ".join(partes)
 
     def selecionado(self) -> dict | None:
-        linhas = self.tabela.selectionModel().selectedRows()
-        if not linhas:
+        item = self.lista.currentItem()
+        if item is None:
             return None
-        item = self.tabela.item(linhas[0].row(), 1)
-        wid = item.data(Qt.ItemDataRole.UserRole)
+        wid = item.data(PAPEL_ID)
         return next((e for e in self.entradas if e["id"] == wid), None)
 
+    def _menu(self, posicao) -> None:
+        entrada = self.selecionado()
+        menu = QMenu(self)
+        menu.addAction("Novo workspace", self.criar)
+        if entrada:
+            menu.addSeparator()
+            menu.addAction("Abrir este", self.usar)
+            menu.addAction("Renomear", self.renomear)
+            menu.addAction("Duplicar", self.duplicar)
+            menu.addAction("Abrir pasta no explorador", self.abrir_pasta)
+            menu.addSeparator()
+            menu.addAction("Excluir", self.excluir)
+        menu.exec(self.lista.viewport().mapToGlobal(posicao))
+
+    # --------------------------------------------------------------------------- acoes
+
+    def criar(self) -> None:
+        nome, ok = QInputDialog.getText(self, "Novo workspace", "Nome do workspace")
+        nome = (nome or "").strip()
+        if not ok or not nome:
+            return
+        try:
+            entrada = ws.create_workspace(nome)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Novo workspace", str(exc))
+            return
+        self.recarregar(entrada["id"])
 
     def renomear(self) -> None:
         entrada = self.selecionado()
@@ -191,12 +351,19 @@ class WorkspacesDialog(QDialog):
         entrada = self.selecionado()
         if not entrada:
             return
-        nomes = ["azul", "verde", "laranja", "roxo", "vermelho", "turquesa"]
-        atual = ws.COLORS.index(entrada["color"]) if entrada.get("color") in ws.COLORS else 0
-        escolha, ok = QInputDialog.getItem(self, "Cor do workspace", "Cor", nomes, atual, False)
-        if ok:
-            ws.set_color(entrada["id"], ws.COLORS[nomes.index(escolha)])
-            self.recarregar(entrada["id"])
+        menu = menu_de_cores(
+            self, entrada.get("color") or "", lambda cor: self._aplicar_cor(entrada["id"], cor)
+        )
+        botao = self.secundarios[1]
+        menu.exec(botao.mapToGlobal(botao.rect().topLeft()))
+
+    def _aplicar_cor(self, wid: str, cor: str) -> None:
+        ws.set_color(wid, cor)
+        self.recarregar(wid)
+        janela = self.parent()
+        if janela is not None and hasattr(janela, "_pintar_botao_workspace"):
+            if getattr(janela, "workspace_id", None) == wid:
+                janela._pintar_botao_workspace(ws.get_workspace(wid))
 
     def duplicar(self) -> None:
         entrada = self.selecionado()
@@ -256,7 +423,8 @@ class WorkspacesDialog(QDialog):
         )
         so_lista = caixa.addButton("Tirar da lista", QMessageBox.ButtonRole.AcceptRole)
         com_arquivos = caixa.addButton("Mover pra lixeira", QMessageBox.ButtonRole.DestructiveRole)
-        caixa.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        cancelar = caixa.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        caixa.setDefaultButton(cancelar)
         caixa.exec()
 
         clicado = caixa.clickedButton()

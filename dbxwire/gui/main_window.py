@@ -6,7 +6,7 @@ import copy
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QSplitter,
     QTabWidget,
     QToolBar,
     QToolButton,
@@ -29,9 +28,9 @@ from PySide6.QtWidgets import (
 )
 
 from .. import APP_NAME, VERSION_LABEL, __version__
-from ..core import auth, codegen, engine, examples, scopes, workspaces as ws
+from ..core import auth, codegen, dinamicas, engine, examples, scopes, workspaces as ws
 from ..core.history import History
-from . import theme
+from . import icons, theme
 from .codegen_dialog import CodegenDialog
 from .console_panel import ConsolePanel
 from .env_editor import EnvEditor
@@ -44,6 +43,7 @@ from .palette import Palette, PaletteItem
 from .request_editor import RequestEditor
 from .variables_dialog import VariablesDialog
 from .response_view import ResponseView
+from .sftp_panel import SftpPanel
 from .splitter import Divisor
 from .tabbar import AbaTabs
 from .tree_panel import TreePanel
@@ -149,6 +149,8 @@ class MainWindow(QMainWindow):
         # a aba sai e volta no meio da espera
         self.enviando_para: dict[str, str] = {}
         self.history: History | None = None
+        # navegador de cada servidor SFTP aberto, por id do perfil
+        self.sftp_abas: dict = {}
         self._tasks: set = set()
         self._assinatura: dict = {}
         self.jar = None
@@ -175,6 +177,12 @@ class MainWindow(QMainWindow):
 
         self._load_registry()
 
+        # O foco nasce na arvore. Sem dizer nada, o Qt entrega o teclado ao primeiro
+        # widget focavel da janela, que e o seletor de workspace na barra de cima: ele
+        # abria com o anel de foco aceso, parecendo um campo de texto ativo, e um Enter
+        # distraido escancarava a lista de workspaces.
+        self.tree_panel.tree.setFocus()
+
 
     def _build_toolbar(self) -> None:
         bar = QToolBar()
@@ -183,23 +191,33 @@ class MainWindow(QMainWindow):
         self.addToolBar(bar)
 
         self.ws_button = QToolButton()
+        self.ws_button.setObjectName("workspace")
         self.ws_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.ws_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.ws_button.setIconSize(QSize(13, 13))
+        self.ws_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ws_menu = QMenu(self)
         self.ws_button.setMenu(self.ws_menu)
         bar.addWidget(self.ws_button)
 
+        # A busca fica logo depois do workspace, do lado esquerdo, porque quem ela
+        # filtra e a arvore, que mora embaixo dela. No canto direito, colada no seletor
+        # de ambiente, ela parecia buscar a resposta ou o ambiente.
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Buscar request, url ou pasta")
+        self.search.setClearButtonEnabled(True)
+        self.search.setFixedWidth(292)
+        self.search.textChanged.connect(lambda text: self.tree_panel.apply_filter(text))
+        bar.addWidget(self.search)
+
+        # Espacador. Fica transparente pela regra `QToolBar > .QWidget` da folha: um
+        # QWidget comum herda o `background` do app, que e a cor de fundo da janela, e
+        # como a barra e mais clara ele pintava uma laje escura de mil pixels nela.
         spacer = QWidget()
         spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy().Expanding, spacer.sizePolicy().verticalPolicy())
         bar.addWidget(spacer)
 
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Buscar request, url ou pasta")
-        self.search.setClearButtonEnabled(True)
-        self.search.setFixedWidth(300)
-        self.search.textChanged.connect(lambda text: self.tree_panel.apply_filter(text))
-        bar.addWidget(self.search)
-
-        label = QLabel("  Ambiente ")
+        label = QLabel("Ambiente")
         label.setObjectName("hint")
         bar.addWidget(label)
 
@@ -266,7 +284,16 @@ class MainWindow(QMainWindow):
         self.side.addTab(self.tree_panel, "Collections")
         self.side.addTab(self.fav_panel, "Favoritos")
         self.side.addTab(self.env_panel, "Ambientes")
+        self.sftp_panel = SftpPanel()
+        self.sftp_panel.conectar.connect(self.sftp_abrir)
+        self.sftp_panel.criar.connect(self.sftp_novo)
+        self.sftp_panel.editar.connect(self.sftp_editar)
+        self.sftp_panel.duplicar.connect(self.sftp_duplicar)
+        self.sftp_panel.excluir.connect(self.sftp_excluir)
+        self.sftp_panel.desconectar.connect(self.sftp_desconectar)
+
         self.side.addTab(self.history_panel, "Historico")
+        self.side.addTab(self.sftp_panel, "SFTP")
 
         self.tabs = AbaTabs()
         self.tabs.barra.fechar_pedido.connect(self.pedir_fechar)
@@ -292,6 +319,7 @@ class MainWindow(QMainWindow):
 
         self.response = ResponseView()
         self.response.salvar_exemplo.connect(self.salvar_exemplo)
+        self.response.copiar_curl_completo.connect(lambda: self.copiar_curl_completo())
 
         self.console = ConsolePanel()
         self.console.fechar_pedido.connect(lambda: self.alternar_console(False))
@@ -301,7 +329,10 @@ class MainWindow(QMainWindow):
         right.addWidget(center)
         right.addWidget(self.response)
         right.addWidget(self.console)
-        right.setSizes([520, 320, 0])
+        # Meio a meio. Antes o request nascia com 520 e a resposta com 320, entao um
+        # request sem params abria com quase quatrocentos pixels de grade vazia em cima
+        # da resposta, que e justamente o que a pessoa acabou de pedir pra ler.
+        right.setSizes([440, 440, 0])
         right.setChildrenCollapsible(False)
         self.splitter_direita = right
 
@@ -338,7 +369,6 @@ class MainWindow(QMainWindow):
         arquivo.addAction(self._action("Novo workspace", self.new_workspace))
         arquivo.addAction(self._action("Gerenciar workspaces", self.manage_workspaces))
         arquivo.addAction(self._action("Nova collection", self.new_collection, "Ctrl+Shift+N"))
-        arquivo.addSeparator()
         arquivo.addSeparator()
         arquivo.addAction(self._action("Importar", self.importar_arquivo, "Ctrl+I"))
         arquivo.addAction(self._action("Importar de curl", self.importar_curl, "Ctrl+Shift+V"))
@@ -410,6 +440,7 @@ class MainWindow(QMainWindow):
         # duas QAction com o mesmo atalho ficam ambiguas pro Qt e nenhuma dispara mais
         executar.addAction(self._action("Importar de curl", self.importar_curl))
         executar.addSeparator()
+        executar.addAction(self._action("Servidores SFTP", lambda: self._ir_para_lateral(4)))
         executar.addAction(self._action("Certificados cliente", self.open_certs))
         executar.addAction(self._action("Cookies guardados", self.open_cookies))
         executar.addAction(self._action("Esquecer tokens do OAuth2", self.limpar_tokens))
@@ -423,6 +454,12 @@ class MainWindow(QMainWindow):
         ir.addAction(self._action("Fechar aba", self.fechar_aba_atual, "Ctrl+W"))
         ir.addSeparator()
         ir.addAction(self._action("Copiar como curl", lambda: self.copiar_curl(), "Ctrl+Shift+C"))
+        ir.addAction(
+            self._action(
+                "Copiar curl completo, com segredo em claro",
+                lambda: self.copiar_curl_completo(),
+            )
+        )
         ir.addAction(self._action("Console", lambda: self.alternar_console(), "Ctrl+`"))
         ir.addAction(self._action("Salvar resposta como exemplo", self.salvar_exemplo))
         ir.addSeparator()
@@ -546,12 +583,32 @@ class MainWindow(QMainWindow):
         self.registry = registry
         self.ws_menu.clear()
 
+        ativo = registry.get("active")
+
+        titulo = QAction("Trocar de workspace", self)
+        titulo.setEnabled(False)
+        self.ws_menu.addAction(titulo)
+
         for entry in registry["workspaces"]:
+            aberto = entry["id"] == ativo
             action = QAction(entry["name"], self)
-            action.setCheckable(True)
-            action.setChecked(entry["id"] == registry.get("active"))
-            action.setToolTip(entry["path"])
-            action.triggered.connect(lambda _=False, wid=entry["id"]: self.load_workspace(wid))
+            # Ponto na cor do workspace, com anel em volta no que esta aberto. Antes
+            # isto era setCheckable numa acao que tambem tinha icone: o Qt desenha o
+            # visto e o icone na mesma coluna, entao a lista inteira parecia igual e
+            # nao dava pra saber qual estava aberto.
+            action.setIcon(icons.ponto_cor(entry.get("color") or theme.DIM, atual=aberto))
+            if aberto:
+                fonte = action.font()
+                fonte.setBold(True)
+                action.setFont(fonte)
+                action.setToolTip("este ja esta aberto")
+            else:
+                action.setToolTip(entry["path"])
+                # so quem nao esta aberto responde ao clique: recarregar o que ja esta
+                # na tela fecha aba e refaz arvore a toa
+                action.triggered.connect(
+                    lambda _=False, wid=entry["id"]: self.load_workspace(wid)
+                )
             self.ws_menu.addAction(action)
 
         self.ws_menu.addSeparator()
@@ -572,11 +629,13 @@ class MainWindow(QMainWindow):
         self._assinatura = ws.assinatura(wid)
         ws.set_active(wid)
 
-        self.ws_button.setText(f"  {entry['name']}  ▾")
-        self.ws_button.setStyleSheet(
-            f"QToolButton {{ color: {theme.TEXT}; font-weight: 600;"
-            f" border-left: 3px solid {entry['color']}; }}"
-        )
+        self._pintar_botao_workspace(entry)
+
+        # trocar de workspace derruba as conexoes: cofre, known_hosts e perfis sao de
+        # um workspace so, e uma sessao aberta apontando pro anterior nao faz sentido
+        for navegador in list(self.sftp_abas.values()):
+            navegador.encerrar()
+        self.sftp_abas.clear()
 
         self.tabs.clear()
         self.editors.clear()
@@ -589,6 +648,7 @@ class MainWindow(QMainWindow):
         self.tree_panel.definir_ordenacao(self.tree_data.get("sortMode") or "manual")
         self.fav_panel.load(self.tree_data)
         self.env_panel.load(self.tree_data)
+        self.sftp_panel.load(self.tree_data)
         self._reload_envs()
 
         if self.history:
@@ -645,12 +705,25 @@ class MainWindow(QMainWindow):
             if self.registry["workspaces"]:
                 self.load_workspace(self.registry["workspaces"][0]["id"])
         elif self.workspace_id:
-            entrada = ws.get_workspace(self.workspace_id)
-            self.ws_button.setText(f"  {entrada['name']}  \u25be")
-            self.ws_button.setStyleSheet(
-                f"QToolButton {{ color: {theme.TEXT}; font-weight: 600;"
-                f" border-left: 3px solid {entrada['color']}; }}"
-            )
+            self._pintar_botao_workspace(ws.get_workspace(self.workspace_id))
+
+    def _pintar_botao_workspace(self, entrada: dict) -> None:
+        """Nome, ponto na cor do workspace e a dica que diz o que aquilo e.
+
+        O nome sozinho na barra nao dizia a que se referia, e quem abre o programa pela
+        primeira vez le "Exemplos" e nao tem como saber que aquilo e um seletor.
+        """
+        self.ws_button.setText(entrada["name"])
+        cor = entrada.get("color") or theme.DIM
+        theme.ao_trocar_widget(
+            self.ws_button,
+            lambda alvo, c=cor: alvo.setIcon(icons.ponto_cor(c)),
+        )
+        self.ws_button.setToolTip(
+            f"Workspace aberto: {entrada['name']}\n"
+            f"{entrada['path']}\n\n"
+            "Clique pra trocar, criar ou gerenciar."
+        )
 
     def open_workspace_folder(self) -> None:
         import os
@@ -849,6 +922,11 @@ class MainWindow(QMainWindow):
         vale sempre. Nasce vazia de proposito: o app nao tem como inventar o valor, mas
         tem como deixar o campo pronto pra receber.
         """
+        # Nome com cifrao e gerado na hora do envio e nunca vira variavel gravada.
+        # Segunda barreira de proposito: o editor ja filtra, mas esta funcao tambem e
+        # chamada de outros caminhos, e foi por um deles que um $guid vazio acabou
+        # gravado no ambiente de producao.
+        nomes = [n for n in (nomes or []) if not dinamicas.eh_dinamica(n)]
         if not nomes:
             return
         env = scopes.active_env(self.tree_data)
@@ -1098,6 +1176,12 @@ class MainWindow(QMainWindow):
         colunas = dados.get("colunas") or []
         if len(colunas) == 2 and colunas[0] > 0:
             self.splitter_principal.setSizes(colunas)
+        # a altura entre request, resposta e console era gravada e nunca lida de volta:
+        # o divisor voltava sempre no lugar de fabrica
+        linhas = dados.get("linhas") or []
+        if len(linhas) == 3 and sum(linhas) > 0:
+            self.splitter_direita.setSizes(linhas)
+            self.alternar_console(linhas[2] > 0)
 
     def _ler_rascunhos(self) -> dict:
         if not self.workspace_id:
@@ -1241,6 +1325,12 @@ class MainWindow(QMainWindow):
         for env_id, editor in list(self.env_editors.items()):
             if editor is widget:
                 del self.env_editors[env_id]
+                break
+        for perfil_id, navegador in list(self.sftp_abas.items()):
+            if navegador is widget:
+                navegador.encerrar()
+                del self.sftp_abas[perfil_id]
+                self.sftp_panel.marcar_ligado(perfil_id, False)
                 break
         self.tabs.removeTab(index)
         self.respostas.pop(node_id_fechado, None)
@@ -1779,6 +1869,7 @@ class MainWindow(QMainWindow):
             ("Gerar codigo do request", "Ctrl+G", self.open_codegen),
             ("Importar de curl", "Ctrl+Shift+V", self.importar_curl),
             ("Copiar como curl", "Ctrl+Shift+C", lambda: self.copiar_curl()),
+            ("Copiar curl completo, com segredo em claro", "", lambda: self.copiar_curl_completo()),
             ("Salvar a resposta como exemplo", "", self.salvar_exemplo),
             ("Importar de Postman, Insomnia, Bruno ou OpenAPI", "Ctrl+I", self.importar_arquivo),
             ("Exportar collections", "Ctrl+Shift+E", self.exportar_arquivo),
@@ -1787,6 +1878,8 @@ class MainWindow(QMainWindow):
             ("Ver historico", "Ctrl+H", lambda: self._ir_para_lateral(3)),
             ("Ver ambientes", "", lambda: self.side.setCurrentIndex(2)),
             ("Ver favoritos", "", lambda: self.side.setCurrentIndex(1)),
+            ("Ver servidores SFTP", "", lambda: self._ir_para_lateral(4)),
+            ("Cadastrar servidor SFTP", "", self.sftp_novo),
             ("Favoritar o request aberto", "Ctrl+Shift+F", self.toggle_favorite),
             ("Novo request na selecao", "Ctrl+N", self.new_request),
             ("Desfazer a ultima mudanca na arvore", "Ctrl+Z", self.undo_tree),
@@ -2130,6 +2223,39 @@ class MainWindow(QMainWindow):
         extra = ", com o segredo como {{nome}}" if segredos else ""
         self.statusBar().showMessage(f"curl de {alvo.get('name')} copiado{extra}", 7000)
 
+    def copiar_curl_completo(self, node: dict | None = None) -> None:
+        """O curl com tudo resolvido: variavel, credencial e segredo em texto puro.
+
+        E o irmao perigoso do copiar_curl. Existe porque colar um curl com {{nome}} num
+        terminal nao roda, e reproduzir uma chamada fora do app e justamente o momento
+        em que voce precisa dela exatamente como o servidor recebeu.
+
+        Nao pergunta nada antes: o botao ja diz completo e o rodape avisa o que foi
+        parar na area de transferencia. Perguntar toda vez viraria ruido numa acao que
+        so se usa de proposito.
+        """
+        alvo = node or self.current_node()
+        if alvo is None:
+            self.statusBar().showMessage("abra ou selecione um request primeiro", 4000)
+            return
+
+        mapa = self.variables_for(alvo)
+        preparado = engine.prepare(alvo, scopes.as_plain(mapa))
+        texto = codegen.generate(
+            "curl", preparado.method, preparado.url, preparado.headers, preparado.body
+        )
+        QGuiApplication.clipboard().setText(texto)
+
+        segredos = len([1 for info in mapa.values() if info.secret and info.value])
+        aviso = f", com {segredos} segredo em claro" if segredos else ""
+        if segredos > 1:
+            aviso = f", com {segredos} segredos em claro"
+        self.registrar(
+            f"curl completo de {alvo.get('name')} copiado{aviso}",
+            "aviso" if segredos else "info",
+            9,
+        )
+
     def _codigo_do_no(self, node: dict) -> None:
         self.open_request(node)
         self.open_codegen()
@@ -2399,10 +2525,239 @@ class MainWindow(QMainWindow):
 
         self._guardar_rascunhos()
         self._save_now()
+        for navegador in list(self.sftp_abas.values()):
+            navegador.encerrar()
+        self.sftp_abas.clear()
         if self.history:
             self.history.close()
         super().closeEvent(event)
 
+
+    def _sftp_perfil(self, perfil_id: str):
+        from ..core import sftp
+
+        for perfil in sftp.listar_perfis(self.tree_data):
+            if perfil.id == perfil_id:
+                return perfil
+        return None
+
+    def _sftp_known_hosts(self):
+        """Fica junto do cofre, e por isso ja esta fora do git pelo .gitignore do
+        workspace. Chave de servidor conhecida e do ambiente, nao do contrato."""
+        return Path(ws.get_workspace(self.workspace_id)["path"]) / ".secrets" / "known_hosts"
+
+    def sftp_novo(self) -> None:
+        from ..core import sftp
+        from .sftp_dialog import PerfilDialog
+
+        if not self.workspace_id:
+            return
+        dialogo = PerfilDialog.pedir(None, self)
+        if dialogo is None:
+            return
+        perfis = sftp.listar_perfis(self.tree_data)
+        perfis.append(dialogo.perfil)
+        sftp.gravar_perfis(self.tree_data, perfis)
+        self._sftp_guardar_segredo(dialogo)
+        self.sftp_panel.refresh()
+        self.mark_dirty()
+        self._ir_para_lateral(4)
+        self.statusBar().showMessage(
+            f"{dialogo.perfil.nome} cadastrado. Duplo clique na lista conecta.", 6000
+        )
+
+    def sftp_editar(self, perfil_id: str) -> None:
+        from ..core import sftp
+        from .sftp_dialog import PerfilDialog
+
+        perfil = self._sftp_perfil(perfil_id)
+        if perfil is None:
+            return
+        dialogo = PerfilDialog.pedir(perfil, self)
+        if dialogo is None:
+            return
+        perfis = [dialogo.perfil if p.id == perfil_id else p for p in sftp.listar_perfis(self.tree_data)]
+        sftp.gravar_perfis(self.tree_data, perfis)
+        self._sftp_guardar_segredo(dialogo)
+        self.sftp_panel.refresh()
+        self.mark_dirty()
+
+    def _sftp_guardar_segredo(self, dialogo) -> None:
+        from ..core import sftp
+
+        if not self.workspace_id:
+            return
+        cofre = ws.cofre(self.workspace_id)
+        try:
+            if dialogo.senha_nova is not None:
+                cofre.set(sftp.CHAVE_SENHA.format(id=dialogo.perfil.id), dialogo.senha_nova)
+            if dialogo.frase_nova is not None:
+                cofre.set(sftp.CHAVE_FRASE.format(id=dialogo.perfil.id), dialogo.frase_nova)
+        except Exception as exc:  # noqa: BLE001
+            self.statusBar().showMessage(f"nao guardei a credencial no cofre: {exc}", 8000)
+
+    def sftp_duplicar(self, perfil_id: str) -> None:
+        import copy as copiar
+
+        from ..core import sftp
+
+        perfil = self._sftp_perfil(perfil_id)
+        if perfil is None:
+            return
+        clone = copiar.deepcopy(perfil)
+        clone.id = sftp.novo_id()
+        clone.nome = f"{perfil.nome} copia"
+        perfis = sftp.listar_perfis(self.tree_data)
+        perfis.append(clone)
+        sftp.gravar_perfis(self.tree_data, perfis)
+        # a credencial NAO vem junto: copiar um servidor pra apontar noutro lugar nao e
+        # motivo pra espalhar segredo por perfil que ninguem revisou
+        self.sftp_panel.refresh()
+        self.mark_dirty()
+        self.statusBar().showMessage(
+            f"{clone.nome} criado. A credencial nao foi copiada, informe de novo.", 7000
+        )
+
+    def sftp_excluir(self, perfil_id: str) -> None:
+        from ..core import sftp
+
+        perfil = self._sftp_perfil(perfil_id)
+        if perfil is None:
+            return
+        resposta = QMessageBox.question(
+            self,
+            "Excluir servidor",
+            f"Tirar {perfil.nome} da lista?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if resposta != QMessageBox.StandardButton.Yes:
+            return
+
+        self.sftp_desconectar(perfil_id)
+        sftp.gravar_perfis(
+            self.tree_data, [p for p in sftp.listar_perfis(self.tree_data) if p.id != perfil_id]
+        )
+        if self.workspace_id:
+            try:
+                cofre = ws.cofre(self.workspace_id)
+                cofre.set(sftp.CHAVE_SENHA.format(id=perfil_id), "")
+                cofre.set(sftp.CHAVE_FRASE.format(id=perfil_id), "")
+            except Exception:  # noqa: BLE001
+                pass
+        self.sftp_panel.refresh()
+        self.mark_dirty()
+        self.statusBar().showMessage(f"{perfil.nome} saiu da lista", 4000)
+
+    def sftp_desconectar(self, perfil_id: str) -> None:
+        navegador = self.sftp_abas.get(perfil_id)
+        if navegador is None:
+            return
+        indice = self.tabs.indexOf(navegador)
+        if indice >= 0:
+            self.close_tab(indice)
+        else:
+            navegador.encerrar()
+            self.sftp_abas.pop(perfil_id, None)
+            self.sftp_panel.marcar_ligado(perfil_id, False)
+
+    def sftp_abrir(self, perfil_id: str, senha: str = "", frase: str = "", confiar: bool = False) -> None:
+        """Conecta e abre a aba do navegador. Reentrante: cada pergunta chama de volta.
+
+        Conectar e uma chamada de rede que pode levar segundos e pode fazer duas
+        perguntas no meio, a credencial e a chave do servidor. Em vez de um la\u00e7o com
+        dialogo dentro da thread, cada resposta chama este mesmo metodo de novo com mais
+        um pedaco resolvido. A janela nunca trava e o fluxo continua legivel de cima
+        pra baixo.
+        """
+        from ..core import sftp
+        from .sftp_browser import Tarefa
+        from .sftp_dialog import ChaveDialog, SenhaDialog
+
+        if not self.workspace_id:
+            return
+
+        aberto = self.sftp_abas.get(perfil_id)
+        if aberto is not None:
+            self.tabs.setCurrentWidget(aberto)
+            return
+
+        perfil = self._sftp_perfil(perfil_id)
+        if perfil is None:
+            return
+        problema = perfil.problema()
+        if problema:
+            self.statusBar().showMessage(f"{perfil.nome}: {problema}", 7000)
+            self.sftp_editar(perfil_id)
+            return
+
+        cofre = ws.cofre(self.workspace_id)
+        guardar_senha = guardar_frase = False
+        if perfil.auth == "senha" and not senha:
+            senha = cofre.get(sftp.CHAVE_SENHA.format(id=perfil.id))
+            if not senha:
+                senha, guardar_senha = SenhaDialog.pedir(perfil, frase=False, parent=self)
+                if not senha:
+                    return
+        if perfil.auth == "chave" and not frase:
+            frase = cofre.get(sftp.CHAVE_FRASE.format(id=perfil.id))
+
+        conexao = sftp.Conexao(perfil, self._sftp_known_hosts())
+        self.statusBar().showMessage(f"conectando em {perfil.rotulo()}")
+
+        def deu_certo(_=None) -> None:
+            if guardar_senha:
+                cofre.set(sftp.CHAVE_SENHA.format(id=perfil.id), senha)
+            if guardar_frase:
+                cofre.set(sftp.CHAVE_FRASE.format(id=perfil.id), frase)
+            self._sftp_montar_aba(perfil, conexao)
+
+        def deu_errado(erro) -> None:
+            if isinstance(erro, (sftp.ChaveDesconhecida, sftp.ChaveTrocada)):
+                if ChaveDialog.confia(erro, self):
+                    self.sftp_abrir(perfil_id, senha, frase, confiar=True)
+                else:
+                    self.statusBar().showMessage("conexao cancelada, chave nao aceita", 6000)
+                return
+            if isinstance(erro, sftp.ErroSftp) and "frase secreta" in str(erro):
+                nova, guardar = SenhaDialog.pedir(perfil, frase=True, parent=self)
+                if nova:
+                    self._sftp_frase_pendente = guardar
+                    self.sftp_abrir(perfil_id, senha, nova, confiar)
+                return
+            self.statusBar().showMessage(f"{perfil.nome}: {erro}", 9000)
+            self.registrar(f"sftp {perfil.rotulo()}: {erro}", "erro", 0)
+
+        if getattr(self, "_sftp_frase_pendente", False) and frase:
+            guardar_frase = True
+            self._sftp_frase_pendente = False
+
+        tarefa = Tarefa(conexao.abrir, senha=senha, frase=frase, confiar=confiar)
+        tarefa.sinais.pronto.connect(deu_certo)
+        tarefa.sinais.estourou.connect(deu_errado)
+        self._tasks.add(tarefa)
+        for sinal in (tarefa.sinais.pronto, tarefa.sinais.estourou):
+            sinal.connect(lambda *_, t=tarefa: self._tasks.discard(t))
+        self.pool.start(tarefa)
+
+    def _sftp_montar_aba(self, perfil, conexao) -> None:
+        from .sftp_browser import SftpBrowser
+
+        navegador = SftpBrowser(conexao)
+        navegador.recado.connect(lambda texto, ms: self.statusBar().showMessage(texto, ms))
+        self.sftp_abas[perfil.id] = navegador
+
+        indice = self.tabs.addTab(navegador, perfil.nome)
+        self.tabs.marcar(navegador, "sftp")
+        self.tabs.setTabToolTip(indice, perfil.rotulo())
+        self.tabs.setCurrentIndex(indice)
+        self._sync_tabs_visibility()
+        self.response.setVisible(False)
+
+        self.sftp_panel.marcar_ligado(perfil.id, True)
+        navegador.comecar()
+        self.registrar(f"sftp conectado em {perfil.rotulo()}", "ok", 0)
+        self.statusBar().showMessage(f"conectado em {perfil.rotulo()}", 5000)
 
     def show_about(self) -> None:
         from .icon import render
@@ -2450,12 +2805,17 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def show_changelog(self) -> None:
-        """Le o CHANGELOG.md do repo. Versao que ninguem le nao serve pra nada."""
-        from pathlib import Path
+        """Le o CHANGELOG.md que veio junto. Versao que ninguem le nao serve pra nada."""
+        from .. import recursos
 
-        arquivo = Path(__file__).resolve().parents[2] / "CHANGELOG.md"
-        if not arquivo.exists():
-            QMessageBox.information(self, "Novidades", "CHANGELOG.md nao encontrado.")
+        arquivo = recursos.arquivo("CHANGELOG.md")
+        if arquivo is None:
+            QMessageBox.information(
+                self,
+                "Novidades",
+                "Esta copia do programa veio sem o CHANGELOG.md.\n\n"
+                "O historico de versoes fica em github.com/vinibotelho1998/dbx-wire.",
+            )
             return
 
         dialog = QDialog(self)

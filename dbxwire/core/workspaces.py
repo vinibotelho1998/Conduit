@@ -45,7 +45,9 @@ ROOT = _raiz_de_dados()
 WORKSPACES_DIR = ROOT / "workspaces"
 REGISTRY = ROOT / "workspaces.json"
 
-COLORS = ["#4da3ff", "#49cc90", "#fca130", "#c084fc", "#f93e3e", "#50e3c2"]
+# Seis cores pra faixa que identifica o workspace na barra de cima. Cada uma passa de
+# 3 contra o fundo dos dois temas, senao a faixa some no claro.
+COLORS = ["#8e8e95", "#3ecf8e", "#ff9a3c", "#5aa9e6", "#ff5f70", "#2dd4bf"]
 
 # O que nunca pode ir pro git de um workspace compartilhado: o environment versionado
 # carrega o contrato, os nomes das variaveis, e o valor secreto fica no cofre local.
@@ -78,9 +80,35 @@ def ensure_root() -> None:
         _write_registry({"schemaVersion": 1, "active": None, "workspaces": []})
 
 
+# Cores que ja foram usadas na faixa do workspace e sairam da lista, apontando pra
+# substituta mais proxima. Sem isso, um workspace criado numa versao antiga fica com uma
+# cor que nao existe mais no seletor: a lista abre sem nada marcado, e a faixa continua
+# num tom que nao pertence mais ao tema.
+CORES_APOSENTADAS = {
+    "#a78bfa": "#8e8e95",
+    "#c084fc": "#8e8e95",
+    "#f472b6": "#5aa9e6",
+    "#4da3ff": "#5aa9e6",
+    "#49cc90": "#3ecf8e",
+    "#fca130": "#ff9a3c",
+    "#f93e3e": "#ff5f70",
+    "#50e3c2": "#2dd4bf",
+}
+
+
 def _read_registry() -> dict:
     ensure_root()
-    return json.loads(REGISTRY.read_text(encoding="utf-8"))
+    dados = json.loads(REGISTRY.read_text(encoding="utf-8"))
+
+    trocou = False
+    for entrada in dados.get("workspaces") or []:
+        nova = CORES_APOSENTADAS.get((entrada.get("color") or "").lower())
+        if nova:
+            entrada["color"] = nova
+            trocou = True
+    if trocou:
+        _write_registry(dados)
+    return dados
 
 
 def _write_registry(data: dict) -> None:
