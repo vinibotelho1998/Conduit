@@ -4,3 +4,7 @@ PySide6==6.11.2
 httpx==0.28.1
 PyYAML==6.0.3
 cryptography==50.0.0
+
+# SSH e SFTP. Reaproveita o cryptography que ja estava aqui pro cofre, entao o custo
+# real sao o bcrypt e o pynacl que vem junto.
+paramiko==5.0.0
