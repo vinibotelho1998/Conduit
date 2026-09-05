@@ -21,8 +21,28 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Testes
+        # Antes de gerar instalador. Nao adianta publicar rapido o que esta quebrado, e a
+        # suite sobe a janela de verdade num Qt sem tela e um servidor SFTP local.
+        run: python tests/rodar.py
+
       - name: Incrementar versao
         id: versao
+        # Depois dos testes de proposito. Este passo faz commit e push da versao
+        # nova; rodando antes, todo build quebrado deixava um commit de versao no
+        # repositorio pra um instalador que nunca chegou a existir.
         run: |
           $conteudo = Get-Content -Path "dbxwire/__init__.py" -Raw
           $m = [regex]::Match($conteudo, '__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"')
@@ -42,18 +62,6 @@ jobs:
           git push origin HEAD:main
 
           echo "numero=$nova" >> $env:GITHUB_OUTPUT
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-
-      - name: Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
 
       - name: Build do app (PyInstaller)
         run: pyinstaller packaging/DbxWire.spec --noconfirm --distpath dist --workpath build

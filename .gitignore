@@ -8,3 +8,6 @@ venv/
 # Build / dist (PyInstaller, Inno Setup)
 /build/
 /dist/
+
+# Gerado pelo DbxWire.spec na hora do build
+packaging/version_info.txt
