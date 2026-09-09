@@ -682,9 +682,46 @@ class MainWindow(QMainWindow):
             atual = ws.assinatura(self.workspace_id)
         except OSError:
             return
-        if atual == self._assinatura:
+        if atual != self._assinatura:
+            self._recarregar_do_disco(atual)
+        self._aplicar_rascunho_de_fora()
+
+    def _aplicar_rascunho_de_fora(self) -> None:
+        """Rascunho escrito por fora entra como alteracao pendente, e nao como salvo.
+
+        Editar o yaml da collection por fora chega na aba ja como conteudo gravado, e
+        ai nao ha o que desfazer. Escrevendo em .dbxwire/rascunhos.json a alteracao
+        chega marcada como nao salva: da pra ver a bolinha, comparar, salvar com Ctrl+S
+        ou descartar fechando a aba.
+        """
+        # nao da pra sair quando o rascunho_timer esta ativo: recarregar a aba mexe no
+        # editor e liga esse timer, entao a guarda barrava exatamente o caso que
+        # interessa. O que protege aqui e comparar conteudo, nao data de arquivo.
+        do_disco = self._ler_rascunhos()
+        if do_disco == self.rascunhos:
             return
-        self._recarregar_do_disco(atual)
+
+        mudou = 0
+        self._recarregando = True
+        try:
+            for node_id, campos in do_disco.items():
+                editor = self.editors.get(node_id)
+                if editor is None or campos == self.rascunhos.get(node_id):
+                    continue
+                for campo in CAMPOS_EDITAVEIS:
+                    if campo in campos:
+                        editor.request[campo] = copy.deepcopy(campos[campo])
+                editor.recarregar_do_modelo()
+                self._marcar_aba(editor)
+                mudou += 1
+        finally:
+            self._recarregando = False
+
+        self.rascunhos = do_disco
+        if mudou:
+            self.statusBar().showMessage(
+                f"{mudou} aba(s) receberam alteracao de fora, ainda nao salva", 6000
+            )
 
     def _recarregar_do_disco(self, atual: dict | None = None) -> None:
         """Relê a arvore do disco sem fechar aba nem perder o que voce esta editando.

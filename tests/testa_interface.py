@@ -348,6 +348,24 @@ def main() -> int:
         )
         p.confere("recarregar nao marca o workspace como alterado", not janela.save_timer.isActive())
 
+        # rascunho escrito por fora chega como alteracao pendente, dando ao usuario a
+        # chance de recusar. Editar o yaml da collection chegaria ja como salvo.
+        import json as _json
+
+        pasta = raiz / ".dbxwire"
+        pasta.mkdir(exist_ok=True)
+        (pasta / "rascunhos.json").write_text(
+            _json.dumps({conteudo["id"]: {"url": "https://veio-como-rascunho.exemplo"}}),
+            encoding="utf-8",
+        )
+        janela._checar_disco()
+        p.confere(
+            "rascunho de fora chegou na aba",
+            editor.url.toPlainText() == "https://veio-como-rascunho.exemplo",
+            editor.url.toPlainText(),
+        )
+        p.confere("e a aba ficou marcada como nao salva", janela._sujo(editor))
+
         # aba com alteracao sua nao pode ser atropelada pelo que veio do disco
         editor.url.setPlainText("https://minha-edicao-nao-salva.exemplo")
         conteudo["url"] = "https://segunda-mexida-por-fora.exemplo"
