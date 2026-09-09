@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import dinamicas
-from . import icons, theme
+from . import icons, theme, tokens
 from .highlight import CodeHighlighter, VarTooltip
 from .examples_panel import ExamplesPanel
 from .kvtable import KvTable
@@ -38,8 +38,17 @@ VAR_NAMES = re.compile(r"\{\{\s*([\w.$-]+)\s*\}\}")
 
 
 def mono(size: int = 10) -> QFont:
-    font = QFont("Cascadia Code")
+    """Fonte de largura fixa, com a cadeia inteira de alternativas.
+
+    Pedir so "Cascadia Code" era pedir uma fonte que a maioria das maquinas nao tem:
+    o Qt nao cai na proxima da lista sozinho, ele substitui pela fonte de interface, e
+    o app inteiro mostrava url, corpo e tabela de variaveis em Tahoma, que nem largura
+    fixa tem. Com setFamilies o Qt percorre a lista ate achar uma instalada.
+    """
+    font = QFont()
+    font.setFamilies([nome.strip() for nome in tokens.FAMILIA_MONO.split(",")])
     font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setFixedPitch(True)
     font.setPointSize(size)
     return font
 

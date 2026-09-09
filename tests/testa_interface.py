@@ -270,6 +270,23 @@ def main() -> int:
     sujeira = [t for t in ("mule" "soft", "vinicius") if t in fonte]
     p.confere("dado de exemplo sem nome proprio nem terceiro", not sujeira, str(sujeira))
 
+    p.secao("fonte de largura fixa")
+    # Pedir uma familia so, "Cascadia Code", entregava Tahoma nas maquinas sem ela, e
+    # a url, o corpo e a tabela de variaveis ficavam em fonte proporcional.
+    # Aqui se confere a intencao da fonte e nao a familia que sai: offscreen nao tem
+    # as fontes do sistema, e o resultado mudaria de maquina pra maquina.
+    from PySide6.QtGui import QFont
+
+    from dbxwire.gui.request_editor import mono
+
+    f = mono(9)
+    esperadas = [n.strip() for n in tokens.FAMILIA_MONO.split(",")]
+    p.confere("mono pede a cadeia inteira, e nao uma familia so", f.families() == esperadas,
+              str(f.families()))
+    p.confere("mono pede largura fixa", f.fixedPitch())
+    p.confere("e a dica de estilo e monoespacada",
+              f.styleHint() == QFont.StyleHint.Monospace)
+
     p.secao("excluir pelo menu da arvore")
     # Signal(dict) fazia o PySide entregar uma copia do node no slot, e o find_parent
     # compara por identidade: o excluir do menu nao achava o pai e nao apagava nada.
