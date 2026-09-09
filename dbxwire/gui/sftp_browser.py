@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QSizePolicy,
     QTableWidget,
@@ -41,7 +42,9 @@ from ..core import sftp
 from . import icons, theme
 from .highlight import CodeHighlighter, guess_language
 from .request_editor import mono
+from .numeros import EditorNumerado
 from .splitter import Divisor
+from .widgets import cabecalho_a_esquerda
 
 PAPEL_ENTRADA = Qt.ItemDataRole.UserRole
 
@@ -205,7 +208,7 @@ class SftpBrowser(QWidget):
         cabecalho.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         # cabecalho centralizado sobre coluna esticada fica boiando longe do dado que
         # ele nomeia; o tamanho segue a direita porque numero se le pela unidade
-        cabecalho.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        cabecalho_a_esquerda(self.tabela)
         self.tabela.horizontalHeaderItem(1).setTextAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
@@ -237,9 +240,7 @@ class SftpBrowser(QWidget):
         tl.addWidget(_botao("Fechar", "fechar a previa", self.fechar_espiada))
         layout.addWidget(topo)
 
-        from PySide6.QtWidgets import QPlainTextEdit
-
-        self.espiada = QPlainTextEdit()
+        self.espiada = EditorNumerado()
         self.espiada.setReadOnly(True)
         self.espiada.setFont(mono(9))
         self.espiada.setFrameShape(QFrame.Shape.NoFrame)

@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -32,6 +31,8 @@ from . import theme
 from .highlight import CodeHighlighter
 from .request_editor import mono
 from .response_view import human_bytes
+from .numeros import EditorNumerado
+from .widgets import cabecalho_a_esquerda
 
 PERIODOS = [("hoje", 1), ("7 dias", 7), ("30 dias", 30), ("tudo", 0)]
 STATUS_FILTROS = [
@@ -435,6 +436,7 @@ class HistoryDetail(QDialog):
     def _headers_view(rows: list) -> QWidget:
         table = QTableWidget(len(rows), 2)
         table.setHorizontalHeaderLabels(["Header", "Valor"])
+        cabecalho_a_esquerda(table)
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -454,7 +456,8 @@ class HistoryDetail(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        view = QPlainTextEdit(text)
+        view = EditorNumerado()
+        view.setPlainText(text)
         view.setReadOnly(True)
         view.setFont(mono(9))
         view.setFrameShape(QFrame.Shape.NoFrame)

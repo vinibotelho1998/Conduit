@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeyEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -13,19 +13,22 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ..core import dinamicas
-from . import theme
+from . import icons, theme
 from .highlight import CodeHighlighter, VarTooltip
 from .examples_panel import ExamplesPanel
 from .kvtable import KvTable
+from .numeros import EditorNumerado
 from .widgets import BadgeTabs, Faixa, so_a_pagina_aberta
 
 METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
@@ -67,7 +70,7 @@ class UrlEdit(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setFixedHeight(38)
+        self.setFixedHeight(36)
         self.setTabChangesFocus(True)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
@@ -90,6 +93,10 @@ class RequestEditor(QWidget):
     pedir_variavel = Signal(str)
     criar_variaveis = Signal(list)
     salvar_pedido = Signal()
+    # True pede o curl com o segredo em claro, False troca por {{nome}}
+    copiar_curl_pedido = Signal(bool)
+    copiar_url_pedido = Signal()
+    codigo_pedido = Signal()
 
     def __init__(self, request: dict, parent=None):
         super().__init__(parent)
@@ -115,6 +122,7 @@ class RequestEditor(QWidget):
         bar.setSpacing(8)
 
         self.method = QComboBox()
+        self.method.setObjectName("metodo")
         self.method.addItems(METHODS)
         # cada opcao da lista ja aparece na cor do proprio metodo
         for indice, nome in enumerate(METHODS):
@@ -125,12 +133,13 @@ class RequestEditor(QWidget):
             )
             self.method.setItemData(indice, mono(9), Qt.ItemDataRole.FontRole)
         self.method.setCurrentText(request.get("method") or "GET")
-        self.method.setFixedWidth(124)
-        self.method.setFixedHeight(38)
+        self.method.setFixedWidth(112)
+        self.method.setFixedHeight(36)
         self.method.setFont(mono(9))
         self.method.currentTextChanged.connect(self._on_method)
 
         self.url = UrlEdit(request.get("url") or "")
+        self.url.setObjectName("url")
         self.url.setPlaceholderText("https://exemplo.com/caminho")
         self.url.setFont(mono(9))
         self.url.textChanged.connect(self._on_url)
@@ -139,9 +148,88 @@ class RequestEditor(QWidget):
         self.url_hl = CodeHighlighter(self.url.document(), "none")
         VarTooltip(self.url, lambda: self._variables)
 
+        # Metodo e endereco dentro do mesmo quadro, como no Postman. Sao duas metades do
+        # mesmo dado: em molduras separadas o olho lia dois campos sem relacao, e o
+        # seletor de metodo virava mais um controle solto na barra.
+        self.grupo_url = QFrame()
+        self.grupo_url.setObjectName("barraUrl")
+        self.grupo_url.setFixedHeight(38)
+        grupo = QHBoxLayout(self.grupo_url)
+        grupo.setContentsMargins(0, 0, 0, 0)
+        grupo.setSpacing(0)
+        self.divisor_url = QFrame()
+        self.divisor_url.setObjectName("divisorBarra")
+        self.divisor_url.setFixedWidth(1)
+        grupo.addWidget(self.method)
+        grupo.addWidget(self.divisor_url)
+        grupo.addWidget(self.url, 1)
+        # o quadro inteiro acende quando o foco cai em qualquer uma das duas metades.
+        # Sem isso so a metade focada ganhava borda e a moldura unica se desfazia.
+        self.method.installEventFilter(self)
+        self.url.installEventFilter(self)
+        self._marcar_foco(False)
+
+        # Copiar o request inteiro. Existia so no Ctrl+Shift+C e num item de menu fundo,
+        # entao na pratica nao existia: e a acao que mais sai daqui pra um ticket ou pra
+        # uma conversa, e agora mora na barra, do lado do endereco.
+        self.copy_btn = QToolButton()
+        self.copy_btn.setObjectName("acaoBarra")
+        self.copy_btn.setText("Copiar")
+        self.copy_btn.setFixedHeight(38)
+        self.copy_btn.setIconSize(QSize(16, 16))
+        self.copy_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.copy_btn.setToolTip("Copiar o request inteiro como curl.  Ctrl+Shift+C")
+        # o icone segue o estado do proprio botao, e nao uma variavel do editor: assim
+        # trocar de tema no meio do aviso de copiado nao volta pro icone errado
+        theme.ao_trocar_widget(
+            self.copy_btn,
+            lambda b: b.setIcon(
+                icons.icone_visto(theme.OK) if b.property("copiado") else icons.icone_copiar()
+            ),
+        )
+        self.copy_btn.clicked.connect(lambda: self._copiar(False))
+
+        # Area de transferencia nao tem retorno visivel nenhum. Sem um sinal aqui, a
+        # unica prova de que o clique pegou era o rodape, do outro lado da tela.
+        self._timer_copiado = QTimer(self)
+        self._timer_copiado.setSingleShot(True)
+        self._timer_copiado.setInterval(1500)
+        self._timer_copiado.timeout.connect(self._desmarcar_copiado)
+
+        menu = QMenu(self.copy_btn)
+        # o texto depois do tab vira a coluna de atalho do menu. Registrar a
+        # QKeySequence aqui daria dois donos pro mesmo atalho, e o Qt desliga os dois.
+        menu.addAction("Copiar como curl\tCtrl+Shift+C", lambda: self._copiar(False))
+        menu.addAction(
+            "Copiar curl completo, com segredo em claro", lambda: self._copiar(True)
+        )
+        menu.addAction("Copiar a url resolvida", lambda: self._copiar(None))
+        menu.addSeparator()
+        menu.addAction("Gerar codigo\tCtrl+G", self.codigo_pedido.emit)
+        self.copy_btn.setMenu(menu)
+        self.copy_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        # largura travada na palavra maior: sem isso o botao crescia ao virar "Copiado"
+        # e empurrava o Enviar por um segundo e meio, bem depois do clique
+        self.copy_btn.setText("Copiado")
+        self.copy_btn.setMinimumWidth(self.copy_btn.sizeHint().width())
+        self.copy_btn.setText("Copiar")
+
+        # Mesmo lugar e mesmo desenho do painel de codigo do Postman, entao quem vem de
+        # la acha sem ler a dica.
+        self.code_btn = QToolButton()
+        self.code_btn.setObjectName("acaoBarra")
+        self.code_btn.setFixedSize(38, 38)
+        self.code_btn.setIconSize(QSize(18, 18))
+        self.code_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.code_btn.setToolTip("Gerar o codigo deste request.  Ctrl+G")
+        theme.ao_trocar_widget(self.code_btn, lambda b: b.setIcon(icons.icone_codigo()))
+        self.code_btn.clicked.connect(self.codigo_pedido.emit)
+
         self.send_btn = QPushButton("Enviar")
         self.send_btn.setObjectName("send")
         self.send_btn.setFixedHeight(38)
+        self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.send_btn.clicked.connect(self.send_requested.emit)
 
         # Salvar fica do lado de Send porque e ali que a mao ja esta. Nasce apagado e
@@ -153,8 +241,10 @@ class RequestEditor(QWidget):
         self.save_btn.setToolTip("Ctrl+S")
         self.save_btn.clicked.connect(self.salvar_pedido.emit)
 
-        bar.addWidget(self.method)
-        bar.addWidget(self.url, 1)
+        bar.addWidget(self.grupo_url, 1)
+        bar.addWidget(self.copy_btn)
+        bar.addWidget(self.code_btn)
+        bar.addSpacing(2)
         bar.addWidget(self.send_btn)
         bar.addWidget(self.save_btn)
         root.addLayout(bar)
@@ -221,7 +311,8 @@ class RequestEditor(QWidget):
         modes.addWidget(self.prettify)
         layout.addLayout(modes)
 
-        self.body = QPlainTextEdit(body.get("raw") or "")
+        self.body = EditorNumerado()
+        self.body.setPlainText(body.get("raw") or "")
         self.body.setFont(mono(9))
         self.body.setPlaceholderText("corpo da requisicao")
         self.body.setFrameShape(QFrame.Shape.NoFrame)
@@ -273,6 +364,42 @@ class RequestEditor(QWidget):
         return self.docs
 
 
+    def _copiar(self, com_segredo: bool | None) -> None:
+        """None pede so a url. True e False escolhem como o segredo sai no curl."""
+        if com_segredo is None:
+            self.copiar_url_pedido.emit()
+        else:
+            self.copiar_curl_pedido.emit(com_segredo)
+        self.copy_btn.setProperty("copiado", True)
+        self.copy_btn.setText("Copiado")
+        self.copy_btn.setIcon(icons.icone_visto(theme.OK))
+        self._timer_copiado.start()
+
+    def _desmarcar_copiado(self) -> None:
+        self.copy_btn.setProperty("copiado", False)
+        self.copy_btn.setText("Copiar")
+        self.copy_btn.setIcon(icons.icone_copiar())
+
+    def _marcar_foco(self, aceso: bool) -> None:
+        """Acende a moldura do quadro de url. Vale pro metodo e pro endereco.
+
+        Passa por propriedade e nao por folha propria porque a cor vem da folha do app,
+        que o tema ja remonta sozinha. Repolir e o gesto que faz o Qt reler o seletor.
+        """
+        if self.grupo_url.property("foco") == aceso:
+            return
+        self.grupo_url.setProperty("foco", aceso)
+        self.grupo_url.style().unpolish(self.grupo_url)
+        self.grupo_url.style().polish(self.grupo_url)
+
+    def eventFilter(self, alvo, evento):  # noqa: N802
+        if alvo in (self.method, self.url):
+            if evento.type() == QEvent.Type.FocusIn:
+                self._marcar_foco(True)
+            elif evento.type() == QEvent.Type.FocusOut:
+                self._marcar_foco(False)
+        return super().eventFilter(alvo, evento)
+
     def _ao_mudar_params(self) -> None:
         self._params_para_url()
         self._atualizar_aviso()
@@ -290,7 +417,9 @@ class RequestEditor(QWidget):
     def _on_method(self, value: str) -> None:
         self.request["method"] = value
         color = theme.METHOD_COLORS.get(value, theme.TEXT)
-        self.method.setStyleSheet(f"QComboBox {{ color: {color}; font-weight: 700; }}")
+        self.method.setStyleSheet(
+            f"QComboBox#metodo {{ color: {color}; font-weight: 700; }}"
+        )
         self._bubble()
 
     def _on_url(self) -> None:

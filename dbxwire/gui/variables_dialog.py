@@ -27,6 +27,7 @@ from . import theme
 from .kvtable import KvTable
 from . import highlight
 from .request_editor import mono
+from .widgets import cabecalho_a_esquerda
 
 
 class ScopePage(QWidget):
@@ -303,6 +304,7 @@ class VariablesDialog(QDialog):
 
         self.tabela_efetivo = QTableWidget(0, 4)
         self.tabela_efetivo.setHorizontalHeaderLabels(["Nome", "Valor", "Vem de", "Sombreada em"])
+        cabecalho_a_esquerda(self.tabela_efetivo)
         self.tabela_efetivo.verticalHeader().setVisible(False)
         self.tabela_efetivo.setShowGrid(False)
         self.tabela_efetivo.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

@@ -402,6 +402,38 @@ def icone_terminal(cor: str = "") -> QIcon:
     return _guardar(chave, pix)
 
 
+def icone_codigo(cor: str = "") -> QIcon:
+    """Sinal de menor, barra e maior: gerar o request em outra linguagem.
+
+    E o mesmo desenho que o Postman usa pro painel de codigo, entao quem vem de la
+    reconhece sem ler a dica.
+    """
+    cor = cor or theme.DIM
+    chave = f"codigo:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor)
+    painter.drawPolyline([QPointF(6.4, 5.2), QPointF(2.8, 9.0), QPointF(6.4, 12.8)])
+    painter.drawPolyline([QPointF(11.6, 5.2), QPointF(15.2, 9.0), QPointF(11.6, 12.8)])
+    painter.drawLine(QPointF(10.4, 4.2), QPointF(7.6, 13.8))
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_visto(cor: str = "") -> QIcon:
+    """Certo. So aparece no lugar do icone de copiar, pelo tempo de dizer que copiou."""
+    cor = cor or theme.OK
+    chave = f"visto:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor, 1.9)
+    painter.drawPolyline([QPointF(3.6, 9.4), QPointF(7.2, 13.0), QPointF(14.4, 5.2)])
+    painter.end()
+    return _guardar(chave, pix)
+
+
 def icone_fechar(cor: str = "", lado: int = 14) -> QIcon:
     """X de apagar linha. O caractere multiplicacao mudava de desenho com a fonte."""
     cor = cor or theme.FAINT

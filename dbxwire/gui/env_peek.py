@@ -40,6 +40,7 @@ from . import icons
 from . import theme
 from . import highlight
 from .request_editor import mono
+from .widgets import cabecalho_a_esquerda
 
 PAPEL_VALOR = Qt.ItemDataRole.UserRole + 1
 PAPEL_SECRETO = Qt.ItemDataRole.UserRole + 2
@@ -133,6 +134,7 @@ class EnvPeek(QFrame):
 
         self.tabela = QTableWidget(0, 4)
         self.tabela.setHorizontalHeaderLabels(["Nome", "Valor", "", "Vem de"])
+        cabecalho_a_esquerda(self.tabela)
         self.tabela.verticalHeader().setVisible(False)
         self.tabela.setShowGrid(False)
         # AnyKeyPressed ficava aqui e era uma armadilha: com a celula so selecionada,

@@ -607,6 +607,10 @@ class TreePanel(QWidget):
         siblings.insert(siblings.index(node) + 1, clone)
         self.refresh()
         self.tree_changed.emit()
+        # quem duplica um request quer mexer na copia agora, entao ela ja abre. Pasta e
+        # collection nao abrem nada, ai seria uma enxurrada de abas.
+        if clone.get("type") == "request":
+            self.request_opened.emit(clone)
 
     def remove(self, node: dict) -> None:
         self.guardar_estado(f"excluir {node.get('name')}")

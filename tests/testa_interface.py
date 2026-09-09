@@ -11,12 +11,14 @@ from __future__ import annotations
 import colorsys
 import inspect
 import sys
+from pathlib import Path
 
 from comum import Placar, casa_limpa, sem_tela  # noqa: E402
 
 sem_tela()
 casa_limpa("interface")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from dbxwire import recursos, seed as mod_seed  # noqa: E402
@@ -114,6 +116,49 @@ def main() -> int:
     p.confere("faixa avisa variavel sem dono", editor.aviso.isVisible())
     p.confere("faixa na cor de erro", tokens.ESCURO["erro"].lower() in editor.aviso.styleSheet().lower())
 
+    p.secao("barra do request")
+    editor.url.setPlainText("https://exemplo.com/{{cep}}")
+    app.processEvents()
+    p.confere("metodo e url num quadro so", editor.method.parent() is editor.grupo_url
+              and editor.url.parent() is editor.grupo_url)
+    p.confere("botao de copiar visivel", editor.copy_btn.isVisible())
+    p.confere("botao de codigo visivel", editor.code_btn.isVisible())
+    p.confere("os dois tem icone", not editor.copy_btn.icon().isNull()
+              and not editor.code_btn.icon().isNull())
+    p.confere("copiar abre as outras saidas",
+              editor.copy_btn.menu() is not None
+              and len([a for a in editor.copy_btn.menu().actions() if not a.isSeparator()]) == 4)
+
+    from PySide6.QtGui import QGuiApplication  # noqa: PLC0415
+
+    QGuiApplication.clipboard().setText("")
+    editor.copy_btn.click()
+    copiado = QGuiApplication.clipboard().text()
+    p.confere("clicar poe o curl na area de transferencia", copiado.startswith("curl"),
+              copiado[:48])
+    segredos = [i.value for i in janela.variables_for(editor.request).values()
+                if i.secret and i.value]
+    p.confere("segredo nao vai em claro no clique",
+              all(v not in copiado for v in segredos), f"{len(segredos)} no escopo")
+    p.confere("o botao avisa que copiou", editor.copy_btn.text() == "Copiado")
+    editor._timer_copiado.stop()
+    editor._desmarcar_copiado()
+    p.confere("e volta ao normal sozinho", editor.copy_btn.text() == "Copiar")
+
+    editor.url.setFocus()
+    app.processEvents()
+    p.confere("o quadro inteiro acende com o foco na url",
+              editor.grupo_url.property("foco") is True)
+    editor.method.setFocus()
+    app.processEvents()
+    p.confere("continua aceso com o foco no metodo",
+              editor.grupo_url.property("foco") is True)
+
+    esquerda = Qt.AlignmentFlag.AlignLeft
+    p.confere("cabecalho da grade fica em cima da coluna",
+              int(editor.params.table.horizontalHeader().defaultAlignment()) & int(esquerda))
+    p.confere("corpo mostra numero de linha", editor.body.largura_regua() > 0)
+
     p.secao("painel de resposta")
     resposta = {"ok": True, "status": 404, "reason": "Not Found",
                 "headers": [["content-type", "application/json"]],
@@ -130,7 +175,6 @@ def main() -> int:
         "mensagem do rodape": janela.rodape.mensagem,
         "metricas da resposta": janela.response.metricas,
         "botao do console": janela.btn_console,
-        "lupa da resposta": janela.response.btn_busca,
         "lista de ambientes": janela.env_panel.lista,
         "lista de servidores": janela.sftp_panel.lista,
     }
@@ -141,7 +185,17 @@ def main() -> int:
     p.confere("todo mundo repintou", not presos, str(presos))
     p.confere("pilula virou 4xx do claro", tokens.CLARO["aviso"].lower() in janela.response.pill.styleSheet().lower())
     p.confere("registro de folhas vivas nao vazou", len(theme._folhas) < 400, str(len(theme._folhas)))
+    # A barra da resposta nao escreve folha nenhuma: ela usa o #silencioso do tema. O que
+    # sobra pra conferir e o icone, que e desenho pronto com a cor dentro e por isso
+    # precisa ser refeito na troca, senao ele fica na paleta anterior pra sempre.
+    barra_resposta = (janela.response.btn_busca, janela.response.btn_curl,
+                      janela.response.btn_copiar, janela.response.btn_exemplo)
+    p.confere("barra da resposta usa o botao do tema",
+              all(b.objectName() == "silencioso" and not b.styleSheet() for b in barra_resposta))
+    chaves = [b.icon().cacheKey() for b in barra_resposta]
     theme.aplicar(app, "escuro")
+    p.confere("icone da barra foi redesenhado",
+              all(b.icon().cacheKey() != k for b, k in zip(barra_resposta, chaves)))
     p.confere("volta pro escuro", tokens.ESCURO["erro"].lower() in editor.aviso.styleSheet().lower())
 
     p.secao("exemplo de resposta")
@@ -215,6 +269,63 @@ def main() -> int:
     fonte = inspect.getsource(mod_seed)
     sujeira = [t for t in ("mule" "soft", "vinicius") if t in fonte]
     p.confere("dado de exemplo sem nome proprio nem terceiro", not sujeira, str(sujeira))
+
+    p.secao("edicao por fora aparece na tela")
+    import yaml
+
+    raiz = Path(ws.get_workspace(janela.workspace_id)["path"])
+    janela._save_now()
+
+    alvo = None
+    for arquivo in raiz.rglob("*.yaml"):
+        dados = yaml.safe_load(arquivo.read_text(encoding="utf-8")) or {}
+        if dados.get("method") and dados.get("id"):
+            alvo, conteudo = arquivo, dados
+            break
+    p.confere("achou um request no disco pra mexer", alvo is not None)
+
+    def no_por_id(nos, alvo_id):
+        for no in nos or []:
+            if no.get("id") == alvo_id:
+                return no
+            achado = no_por_id(no.get("items"), alvo_id)
+            if achado is not None:
+                return achado
+        return None
+
+    if alvo is not None:
+        no = no_por_id(janela.tree_data.get("collections"), conteudo["id"])
+        p.confere("request achado na arvore em memoria", no is not None)
+        janela.open_request(no)
+        editor = janela.editors.get(conteudo["id"])
+        p.confere("aba aberta pro request", editor is not None)
+
+        # controle negativo: sem ninguem mexer no disco, checar nao pode recarregar nada
+        antes = dict(janela._assinatura)
+        janela._checar_disco()
+        p.confere("disco parado nao recarrega", janela._assinatura == antes)
+
+        conteudo["url"] = "https://mexido-por-fora.exemplo/teste"
+        alvo.write_text(yaml.safe_dump(conteudo, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        janela._checar_disco()
+
+        p.confere(
+            "url editada por fora chegou na aba",
+            editor is not None and editor.url.toPlainText() == "https://mexido-por-fora.exemplo/teste",
+            editor.url.toPlainText() if editor else "",
+        )
+        p.confere("recarregar nao marca o workspace como alterado", not janela.save_timer.isActive())
+
+        # aba com alteracao sua nao pode ser atropelada pelo que veio do disco
+        editor.url.setPlainText("https://minha-edicao-nao-salva.exemplo")
+        conteudo["url"] = "https://segunda-mexida-por-fora.exemplo"
+        alvo.write_text(yaml.safe_dump(conteudo, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        janela._checar_disco()
+        p.confere(
+            "aba com alteracao sua nao e atropelada",
+            editor.url.toPlainText() == "https://minha-edicao-nao-salva.exemplo",
+            editor.url.toPlainText(),
+        )
 
     return p.fechar()
 

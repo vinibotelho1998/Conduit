@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
         self.sftp_abas: dict = {}
         self._tasks: set = set()
         self._assinatura: dict = {}
+        self._recarregando = False
         self.jar = None
         self.runtime_vars: dict = {}
         self.rascunhos: dict = {}
@@ -169,6 +170,13 @@ class MainWindow(QMainWindow):
         self.rascunho_timer.setSingleShot(True)
         self.rascunho_timer.setInterval(700)
         self.rascunho_timer.timeout.connect(self._guardar_rascunhos)
+
+        # quem edita o workspace por fora, um script ou o terminal, aparece na tela sem
+        # precisar fechar e abrir o app. Do outro lado o gravar_workspace ja protege o
+        # trabalho de quem editou por fora, entao os dois sentidos ficam cobertos.
+        self.disco_timer = QTimer(self)
+        self.disco_timer.setInterval(1500)
+        self.disco_timer.timeout.connect(self._checar_disco)
 
         self._build_toolbar()
         self._build_central()
@@ -460,6 +468,7 @@ class MainWindow(QMainWindow):
                 lambda: self.copiar_curl_completo(),
             )
         )
+        ir.addAction(self._action("Copiar a url resolvida", lambda: self.copiar_url()))
         ir.addAction(self._action("Console", lambda: self.alternar_console(), "Ctrl+`"))
         ir.addAction(self._action("Salvar resposta como exemplo", self.salvar_exemplo))
         ir.addSeparator()
@@ -663,6 +672,73 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"workspace {entry['name']}", 3000)
         self._reabrir_rascunhos()
         self._ler_janela()
+        self.disco_timer.start()
+
+    def _checar_disco(self) -> None:
+        """Ve se alguem mexeu no workspace por fora e traz pra tela."""
+        if not self.workspace_id or self.save_timer.isActive():
+            return
+        try:
+            atual = ws.assinatura(self.workspace_id)
+        except OSError:
+            return
+        if atual == self._assinatura:
+            return
+        self._recarregar_do_disco(atual)
+
+    def _recarregar_do_disco(self, atual: dict | None = None) -> None:
+        """Relê a arvore do disco sem fechar aba nem perder o que voce esta editando.
+
+        As abas com alteracao pendente ficam como estao, so passam a apontar pro node
+        novo. Quem nao tem alteracao pendente e redesenhado com o que veio do disco.
+        """
+        preservadas = 0
+        self._recarregando = True
+        try:
+            self.tree_data = ws.read_tree(self.workspace_id)
+            self._assinatura = atual or ws.assinatura(self.workspace_id)
+
+            por_id: dict = {}
+
+            def indexar(nos):
+                for no in nos or []:
+                    if no.get("id"):
+                        por_id[no["id"]] = no
+                    indexar(no.get("items"))
+
+            indexar(self.tree_data.get("collections"))
+
+            for node_id, editor in self.editors.items():
+                novo = por_id.get(node_id)
+                if novo is None:
+                    continue
+                # o sujo compara a aba com o node que ela tinha, entao ele tem que ser
+                # medido antes de trocar a referencia pelo que acabou de vir do disco
+                tinha_alteracao = self._sujo(editor)
+                editor.no_real = novo
+                if tinha_alteracao:
+                    preservadas += 1
+                    continue
+                editor.request.clear()
+                editor.request.update(copy.deepcopy(novo))
+                editor.recarregar_do_modelo()
+                editor.definir_exemplos(novo.get("examples"))
+                self._marcar_aba(editor)
+
+            self.tree_panel.load(self.tree_data)
+            self.tree_panel.definir_ordenacao(self.tree_data.get("sortMode") or "manual")
+            self.fav_panel.load(self.tree_data)
+            self.env_panel.load(self.tree_data)
+            self.sftp_panel.load(self.tree_data)
+            self._reload_envs()
+            self._refresh_var_hints()
+        finally:
+            self._recarregando = False
+
+        aviso = "recarregado do disco"
+        if preservadas:
+            aviso += f", {preservadas} aba(s) com alteracao sua ficaram como estavam"
+        self.statusBar().showMessage(aviso, 5000)
 
     def _reabrir_rascunhos(self) -> None:
         """Abre de volta as abas que ficaram com alteracao sem salvar."""
@@ -1076,6 +1152,13 @@ class MainWindow(QMainWindow):
         editor.send_requested.connect(self.send_current)
         editor.curl_pedido.connect(lambda texto, n=rascunho: self.importar_curl(texto, n))
         editor.salvar_pedido.connect(lambda e=None: self.salvar_aba())
+        editor.copiar_curl_pedido.connect(
+            lambda claro, n=rascunho: (
+                self.copiar_curl_completo(n) if claro else self.copiar_curl(n)
+            )
+        )
+        editor.copiar_url_pedido.connect(lambda n=rascunho: self.copiar_url(n))
+        editor.codigo_pedido.connect(self.open_codegen)
         editor.exemplos.abrir.connect(self.mostrar_exemplo)
         editor.exemplos.renomear.connect(lambda ex, n=node: self.renomear_exemplo(n, ex))
         editor.exemplos.excluir.connect(lambda ex, n=node: self.excluir_exemplo(n, ex))
@@ -1870,6 +1953,7 @@ class MainWindow(QMainWindow):
             ("Importar de curl", "Ctrl+Shift+V", self.importar_curl),
             ("Copiar como curl", "Ctrl+Shift+C", lambda: self.copiar_curl()),
             ("Copiar curl completo, com segredo em claro", "", lambda: self.copiar_curl_completo()),
+            ("Copiar a url resolvida", "", lambda: self.copiar_url()),
             ("Salvar a resposta como exemplo", "", self.salvar_exemplo),
             ("Importar de Postman, Insomnia, Bruno ou OpenAPI", "Ctrl+I", self.importar_arquivo),
             ("Exportar collections", "Ctrl+Shift+E", self.exportar_arquivo),
@@ -2223,6 +2307,26 @@ class MainWindow(QMainWindow):
         extra = ", com o segredo como {{nome}}" if segredos else ""
         self.statusBar().showMessage(f"curl de {alvo.get('name')} copiado{extra}", 7000)
 
+    def copiar_url(self, node: dict | None = None) -> None:
+        """Poe na area de transferencia a url final, com variavel e query resolvidas.
+
+        Segue a regra do resto do app: segredo sai como {{nome}}. Url com token na query
+        e justamente o caso em que colar num chat vaza credencial sem ninguem perceber.
+        """
+        alvo = node or self.current_node()
+        if alvo is None:
+            self.statusBar().showMessage("abra ou selecione um request primeiro", 4000)
+            return
+        mapa = self.variables_for(alvo)
+        plano = {
+            nome: {"value": info.value, "secret": info.secret}
+            for nome, info in mapa.items()
+            if not info.secret
+        }
+        preparado = engine.prepare(alvo, plano)
+        QGuiApplication.clipboard().setText(preparado.url)
+        self.statusBar().showMessage(f"url de {alvo.get('name')} copiada", 6000)
+
     def copiar_curl_completo(self, node: dict | None = None) -> None:
         """O curl com tudo resolvido: variavel, credencial e segredo em texto puro.
 
@@ -2464,6 +2568,10 @@ class MainWindow(QMainWindow):
 
 
     def mark_dirty(self) -> None:
+        # repintar a arvore com o que veio do disco nao e alteracao sua, e se contasse
+        # como tal o app gravaria de volta e o proximo ciclo leria isso como mudanca
+        if self._recarregando:
+            return
         self.statusBar().showMessage("alterado")
         self.save_timer.start()
 

@@ -308,6 +308,57 @@ QComboBox QAbstractItemView {{
     selection-color: {p["texto"]}; outline: 0; padding: {e[3]}px;
 }}
 
+/* ------------------------------------------------------------- barra do request */
+
+/* Metodo e endereco dividem uma moldura so, como no Postman. O quadro carrega a borda
+   e o fundo, as duas metades nao carregam nada: com moldura em cada uma, a barra virava
+   tres retangulos encaixados e o metodo lia como um seletor sem relacao com a url.
+
+   A borda acende pela propriedade `foco`, que o editor poe no quadro. O Qt nao tem
+   :focus-within, entao sem ela so a metade focada acendia e a moldura unica se
+   desfazia bem na hora em que a pessoa estava digitando dentro dela. */
+QFrame#barraUrl {{
+    background: {p["superficie_alta"]}; border: 1px solid {p["borda"]};
+    border-radius: {r["medio"]}px;
+}}
+QFrame#barraUrl[foco="true"] {{
+    border-color: {p["foco"]}; background: {p["superficie"]};
+}}
+QFrame#divisorBarra {{ background: {p["borda_forte"]}; }}
+
+QComboBox#metodo, QPlainTextEdit#url {{
+    background: transparent; border: 0; border-radius: 0;
+}}
+QComboBox#metodo:hover, QComboBox#metodo:focus,
+QPlainTextEdit#url:hover, QPlainTextEdit#url:focus {{
+    background: transparent; border: 0;
+}}
+QComboBox#metodo {{ padding-left: {e[5]}px; font-weight: 700; }}
+QPlainTextEdit#url {{ padding: {e[3]}px {e[5]}px; }}
+
+/* Copiar o request e gerar codigo. Ficam entre o endereco e o Enviar, no lugar em que
+   o Postman poe as mesmas duas coisas. Sao secundarias de proposito, com moldura e sem
+   preenchimento, pra que o Enviar siga sendo o unico bloco de cor da barra. */
+QToolButton#acaoBarra {{
+    background: {p["superficie_alta"]}; border: 1px solid {p["borda"]};
+    border-radius: {r["medio"]}px; color: {p["texto_medio"]};
+    padding: 0 {e[5]}px; font-weight: 600;
+}}
+QToolButton#acaoBarra:hover {{
+    background: {p["elevado"]}; border-color: {p["borda_forte"]}; color: {p["texto"]};
+}}
+QToolButton#acaoBarra:pressed {{ background: {p["superficie"]}; }}
+QToolButton#acaoBarra:checked {{
+    background: {p["marca_fundo"]}; border-color: {p["marca"]}; color: {p["marca"]};
+}}
+QToolButton#acaoBarra:focus {{ border-color: {p["foco"]}; }}
+QToolButton#acaoBarra:disabled {{ color: {p["texto_apagado"]}; background: {p["fundo"]}; }}
+QToolButton#acaoBarra::menu-button {{
+    border: 0; border-left: 1px solid {p["borda"]}; width: 17px;
+    subcontrol-origin: border; subcontrol-position: right center;
+}}
+QToolButton#acaoBarra::menu-arrow {{ image: url(__CHEVRON__); width: 10px; height: 10px; }}
+
 /* ------------------------------------------------------------------------ botoes */
 
 QPushButton {{
@@ -326,6 +377,10 @@ QPushButton#send {{
     border-radius: {r["medio"]}px; font-weight: 700; padding: {e[4]}px {e[8]}px;
 }}
 QPushButton#send:hover {{ background: {p["marca_clara"]}; border-color: {p["marca_clara"]}; }}
+QPushButton#send:pressed {{
+    background: {mistura(p["marca"], p["fundo"], 0.72)};
+    border-color: {mistura(p["marca"], p["fundo"], 0.72)};
+}}
 QPushButton#send:focus {{ border-color: {p["texto"]}; }}
 QPushButton#send:disabled {{
     background: {mistura(p["marca"], p["fundo"], 0.35)};
@@ -337,6 +392,7 @@ QPushButton#salvar {{
     border-radius: {r["medio"]}px; padding: 0 {e[6]}px; color: {p["texto"]}; font-weight: 600;
 }}
 QPushButton#salvar:hover {{ background: {p["elevado"]}; border-color: {p["borda_forte"]}; }}
+QPushButton#salvar:pressed {{ background: {p["superficie"]}; }}
 QPushButton#salvar:disabled {{
     background: transparent; border-color: {p["borda"]}; color: {p["texto_apagado"]};
 }}
@@ -351,6 +407,9 @@ QPushButton#primario {{
 QPushButton#primario:hover {{
     background: {mistura(p["marca"], p["superficie"], 0.30)}; color: {p["texto"]};
 }}
+QPushButton#primario:pressed {{
+    background: {mistura(p["marca"], p["superficie"], 0.45)}; color: {p["texto"]};
+}}
 QPushButton#primario:disabled {{
     background: transparent; border-color: {p["borda"]}; color: {p["texto_apagado"]};
 }}
@@ -359,6 +418,8 @@ QPushButton#perigo {{
     background: transparent; border: 1px solid {alfa(p["erro"], 0.45)}; color: {p["erro"]};
 }}
 QPushButton#perigo:hover {{ background: {alfa(p["erro"], 0.14)}; border-color: {p["erro"]}; }}
+QPushButton#perigo:pressed {{ background: {alfa(p["erro"], 0.26)}; }}
+QPushButton#perigo:focus {{ border-color: {p["erro"]}; }}
 
 QPushButton#flat, QPushButton#link {{
     background: transparent; border: 1px solid transparent; color: {p["marca"]};

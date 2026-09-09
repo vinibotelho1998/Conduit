@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from ..core import examples
 from . import theme
+from .widgets import cabecalho_a_esquerda
 
 
 class ExamplesPanel(QWidget):
@@ -48,6 +49,7 @@ class ExamplesPanel(QWidget):
 
         self.tabela = QTableWidget(0, 4)
         self.tabela.setHorizontalHeaderLabels(["Nome", "Status", "Salvo em", "Tamanho"])
+        cabecalho_a_esquerda(self.tabela)
         self.tabela.verticalHeader().setVisible(False)
         self.tabela.setShowGrid(False)
         self.tabela.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

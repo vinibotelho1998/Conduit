@@ -90,7 +90,9 @@ class AbaBar(QTabBar):
             largura_marca = QFontMetricsF(_fonte_pilula(None)).horizontalAdvance(metodo) + 12
         else:
             largura_marca = 14.0
-        texto = QFontMetricsF(_fonte_nome()).horizontalAdvance(self.tabText(index))
+        # medido no negrito, que e como a aba escolhida se pinta. Na fonte normal a
+        # conta dava curta e a aba aberta cortava o proprio nome com reticencias
+        texto = QFontMetricsF(_fonte_nome(True)).horizontalAdvance(self.tabText(index))
         total = MARGEM + largura_marca + GAP + texto + GAP + ZONA_X + MARGEM
         return QRect(0, 0, int(max(LARGURA_MIN, min(LARGURA_MAX, total))), altura()).size()
 
@@ -170,10 +172,14 @@ class AbaBar(QTabBar):
         )
 
         caixa = self._caixa_x(index)
-        if sob or selecionada:
-            self._pintar_x(painter, caixa, aceso=sob and self._sob_x, sujo=sujo)
-        elif sujo:
+        # o ponto de nao salvo ganha do X, inclusive na aba escolhida. Antes a aba
+        # aberta trocava o ponto por um X so pintado de laranja, e ninguem percebia
+        # que tinha alteracao justo na aba em que se estava mexendo. O X volta quando
+        # o mouse chega na aba, que e quando ele serve pra alguma coisa.
+        if sujo and not sob:
             self._pintar_ponto(painter, caixa)
+        elif sob or selecionada:
+            self._pintar_x(painter, caixa, aceso=sob and self._sob_x, sujo=sujo)
 
     @staticmethod
     def _pintar_ponto(painter: QPainter, caixa: QRectF) -> None:

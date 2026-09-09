@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 from ..core import certs
 from . import theme
 from .request_editor import mono
-from .widgets import Faixa
+from .widgets import Faixa, cabecalho_a_esquerda
 
 FILTRO = "Certificado (*.pfx *.p12 *.pem *.crt *.cer);;Todos (*)"
 
@@ -133,6 +133,7 @@ class CertsDialog(QDialog):
 
         self.tabela = QTableWidget(0, 5)
         self.tabela.setHorizontalHeaderLabels(["Host", "Arquivo", "Senha", "Vale ate", "Dono"])
+        cabecalho_a_esquerda(self.tabela)
         self.tabela.verticalHeader().setVisible(False)
         self.tabela.setShowGrid(False)
         self.tabela.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

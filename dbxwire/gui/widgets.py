@@ -181,6 +181,22 @@ class Faixa(QWidget):
         self.hide()
 
 
+def cabecalho_a_esquerda(tabela) -> None:
+    """Poe o nome da coluna em cima da coluna, e nao no meio dela.
+
+    O Qt centraliza o cabecalho de tabela por padrao. Como o conteudo de toda tabela
+    daqui e alinhado a esquerda, o rotulo boiava longe da primeira letra do dado e
+    deixava de apontar pra coluna que nomeia: com CHAVE em 260 pixels de largura, a
+    palavra caia no meio do vazio entre uma coluna e a outra.
+
+    Nao da pra resolver na folha de estilo. `text-align` existe no QSS do Qt pra botao
+    e pra barra de progresso, e o cabecalho ignora.
+    """
+    tabela.horizontalHeader().setDefaultAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    )
+
+
 def so_a_pagina_aberta(tabs: QTabWidget) -> None:
     """Faz o conjunto de abas pedir o tamanho da pagina aberta, e nao da maior de todas.
 

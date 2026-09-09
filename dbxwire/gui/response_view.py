@@ -39,8 +39,9 @@ from PySide6.QtWidgets import (
 
 from . import icons, theme, tokens
 from .highlight import CodeHighlighter, guess_language
+from .numeros import EditorNumerado
 from .request_editor import mono
-from .widgets import BadgeTabs, so_a_pagina_aberta
+from .widgets import BadgeTabs, cabecalho_a_esquerda, so_a_pagina_aberta
 
 
 def human_bytes(n: int | None) -> str:
@@ -84,6 +85,7 @@ def flat_button(texto: str, dica: str = "", icone=None) -> QToolButton:
     tema dentro dele, entao ele precisa ser refeito quando o tema muda.
     """
     btn = QToolButton()
+    btn.setObjectName("silencioso")
     if icone is not None:
         btn.setIconSize(QSize(18, 18))
         btn.setAutoRaise(True)
@@ -92,13 +94,6 @@ def flat_button(texto: str, dica: str = "", icone=None) -> QToolButton:
         btn.setText(texto)
     btn.setToolTip(dica or texto)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    theme.estilizar(
-        btn,
-        lambda: f"QToolButton {{ border: 0; background: transparent; color: {theme.DIM};"
-        f" padding: 4px 7px; border-radius: 8px; }}"
-        f"QToolButton:hover {{ background: {theme.RAISE}; color: {theme.TEXT}; }}"
-        f"QToolButton:checked {{ background: {theme.RAISE}; color: {theme.ACCENT}; }}",
-    )
     return btn
 
 
@@ -232,7 +227,7 @@ class BodyView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.edit = QPlainTextEdit()
+        self.edit = EditorNumerado()
         self.edit.setReadOnly(True)
         self.edit.setFont(mono(9))
         self.edit.setFrameShape(QFrame.Shape.NoFrame)
@@ -333,6 +328,7 @@ class BodyView(QWidget):
 def tabela_pares(rows, cor_chave: str = theme.ACCENT, largura: int = 280) -> QTableWidget:
     tabela = QTableWidget(len(rows or []), 2)
     tabela.setHorizontalHeaderLabels(["Nome", "Valor"])
+    cabecalho_a_esquerda(tabela)
     tabela.verticalHeader().setVisible(False)
     tabela.setShowGrid(False)
     tabela.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -435,7 +431,15 @@ class ResponseView(QWidget):
         )
         self.btn_curl.clicked.connect(self.copiar_curl_completo.emit)
 
-        for b in (self.btn_busca, self.btn_wrap, self.btn_curl, self.btn_copiar,
+        # Um risco separa o que muda a vista, lupa e quebra de linha, do que leva a
+        # resposta pra fora do app. Sem ele eram seis icones em fila e o olho tinha que
+        # ler os seis pra achar o que queria.
+        divisor = QFrame()
+        divisor.setFixedWidth(1)
+        divisor.setFixedHeight(18)
+        theme.estilizar(divisor, lambda: f"background: {theme.BORDER};")
+
+        for b in (self.btn_busca, self.btn_wrap, divisor, self.btn_curl, self.btn_copiar,
                   self.btn_salvar, self.btn_exemplo):
             cl.addWidget(b)
         root.addWidget(cabeca)
@@ -662,6 +666,7 @@ class ResponseView(QWidget):
             return vazio
         tabela = QTableWidget(len(cookies), 3)
         tabela.setHorizontalHeaderLabels(["Cookie", "Valor", "Atributos"])
+        cabecalho_a_esquerda(tabela)
         tabela.verticalHeader().setVisible(False)
         tabela.setShowGrid(False)
         tabela.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

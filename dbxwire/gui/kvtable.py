@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from . import theme
 from .controles import BotaoApagar, Marcador
 from .highlight import VAR_PY, cor_da_variavel
+from .widgets import cabecalho_a_esquerda
 
 
 def _centrado(widget: QWidget) -> QWidget:
@@ -234,6 +235,7 @@ class KvTable(QWidget):
 
         self.table = QTableWidget(0, len(colunas), self)
         self.table.setHorizontalHeaderLabels(colunas)
+        cabecalho_a_esquerda(self.table)
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)

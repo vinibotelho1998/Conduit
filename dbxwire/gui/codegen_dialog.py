@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from ..core import codegen
 from . import theme
 from .highlight import CodeHighlighter
+from .numeros import EditorNumerado
 from .request_editor import mono
 
 EXTENSAO = {
@@ -76,7 +77,7 @@ class CodegenDialog(QDialog):
         barra.addWidget(self.btn_salvar)
         root.addLayout(barra)
 
-        self.codigo = QPlainTextEdit()
+        self.codigo = EditorNumerado()
         self.codigo.setReadOnly(True)
         self.codigo.setFont(mono(9))
         self.codigo.setFrameShape(QFrame.Shape.NoFrame)
