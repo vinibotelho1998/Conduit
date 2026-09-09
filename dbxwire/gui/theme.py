@@ -592,6 +592,27 @@ QToolTip {{
 QDialog {{ background: {p["fundo"]}; }}
 QDialogButtonBox QPushButton {{ min-width: 86px; }}
 
+/* A caixa de aviso herdava o botao da barra, de canto bem redondo, numa altura
+   pequena: a proporcao virava pilula e o conjunto parecia de outro programa. Aqui o
+   botao fica mais alto, de canto discreto, e o recomendado e o unico preenchido,
+   entao da pra responder a caixa sem ler os tres rotulos. */
+QMessageBox {{ background: {p["fundo"]}; }}
+QMessageBox QLabel {{ color: {p["texto"]}; }}
+QMessageBox QPushButton {{
+    min-width: 104px; min-height: 32px; padding: 0 {e[6]}px;
+    border-radius: {r["pequeno"]}px; font-weight: 600;
+    background: {p["superficie_alta"]}; border: 1px solid {p["borda"]}; color: {p["texto"]};
+}}
+QMessageBox QPushButton:hover {{ background: {p["elevado"]}; border-color: {p["borda_forte"]}; }}
+QMessageBox QPushButton:pressed {{ background: {p["superficie"]}; }}
+QMessageBox QPushButton:default {{
+    background: {p["marca"]}; border-color: {p["marca"]}; color: {p["marca_tinta"]};
+}}
+QMessageBox QPushButton:default:hover {{
+    background: {p["marca_clara"]}; border-color: {p["marca_clara"]};
+}}
+QMessageBox QPushButton:focus {{ border-color: {p["foco"]}; }}
+
 QProgressBar {{
     background: {p["superficie_alta"]}; border: 0; border-radius: 3px;
     height: 4px; text-align: center; color: transparent;

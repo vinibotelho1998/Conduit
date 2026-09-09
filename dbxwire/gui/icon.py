@@ -38,6 +38,10 @@ TILE_BOTTOM = "#050506"
 TRACO = "#f4f4f6"
 BRILHO = "#5b9fd6"
 EDGE = "#3d3d43"
+# Nos tamanhos miudos a borda precisa ser mais clara que a de 32 pra cima. O fundo do
+# icone e quase preto e a barra de titulo escura do Windows tambem: sem essa borda o
+# quadrado sumia e sobrava o traco solto no ar, com cara de icone quebrado.
+EDGE_MIUDO = "#6c6c75"
 
 # Pulso em coordenada normalizada. Versao cheia pros tamanhos grandes e versao com
 # menos vertices pros pequenos, onde vertice demais vira borrao.
@@ -75,15 +79,14 @@ def render(size: int) -> QPixmap:
     raio = s * 0.225
     painter.drawRoundedRect(QRectF(0, 0, s, s), raio, raio)
 
-    if size >= 32:
-        caneta = QPen(QColor(EDGE))
-        caneta.setWidthF(max(1.0, s * 0.012))
-        painter.setPen(caneta)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        recuo = caneta.widthF() / 2
-        painter.drawRoundedRect(
-            QRectF(recuo, recuo, s - 2 * recuo, s - 2 * recuo), raio - recuo, raio - recuo
-        )
+    caneta = QPen(QColor(EDGE if size >= 32 else EDGE_MIUDO))
+    caneta.setWidthF(max(1.0, s * 0.012))
+    painter.setPen(caneta)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    recuo = caneta.widthF() / 2
+    painter.drawRoundedRect(
+        QRectF(recuo, recuo, s - 2 * recuo, s - 2 * recuo), raio - recuo, raio - recuo
+    )
 
     pontos = PULSO if size >= 32 else PULSO_MIUDO
     espessura = s * (0.135 if size < 32 else 0.105)
