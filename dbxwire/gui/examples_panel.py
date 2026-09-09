@@ -26,9 +26,9 @@ from .widgets import cabecalho_a_esquerda
 
 
 class ExamplesPanel(QWidget):
-    abrir = Signal(dict)
-    renomear = Signal(dict)
-    excluir = Signal(dict)
+    abrir = Signal(object)
+    renomear = Signal(object)
+    excluir = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)

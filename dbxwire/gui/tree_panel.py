@@ -164,21 +164,21 @@ class DropTree(QTreeWidget):
 
 class TreePanel(QWidget):
     # o painel nao sabe montar curl nem exemplo, quem sabe e a janela
-    request_opened = Signal(dict)
+    request_opened = Signal(object)
     tree_changed = Signal()
     favorito_mudou = Signal()
     ordem_aplicada = Signal()
-    auth_pedida = Signal(dict)
-    exemplo_aberto = Signal(dict)
-    curl_pedido = Signal(dict)
-    codigo_pedido = Signal(dict)
-    abrir_pedido = Signal(dict)
+    auth_pedida = Signal(object)
+    exemplo_aberto = Signal(object)
+    curl_pedido = Signal(object)
+    codigo_pedido = Signal(object)
+    abrir_pedido = Signal(object)
     # a arvore nao decide excluir sozinha: quem confirma, fecha a aba aberta e avisa o
     # editor e a janela, que tem o contexto todo. Excluir direto daqui, sem passar por
     # ela, deixava a aba do request excluido apontando pro vazio e apagava exemplo sem
     # perguntar.
-    exclusao_pedida = Signal(dict)
-    exemplo_exclusao_pedida = Signal(dict)
+    exclusao_pedida = Signal(object)
+    exemplo_exclusao_pedida = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)

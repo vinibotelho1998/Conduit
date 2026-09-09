@@ -19,7 +19,7 @@ sem_tela()
 casa_limpa("interface")
 
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from dbxwire import recursos, seed as mod_seed  # noqa: E402
 from dbxwire.core import codegen, curl_import, examples, sftp, workspaces as ws  # noqa: E402
@@ -269,6 +269,38 @@ def main() -> int:
     fonte = inspect.getsource(mod_seed)
     sujeira = [t for t in ("mule" "soft", "vinicius") if t in fonte]
     p.confere("dado de exemplo sem nome proprio nem terceiro", not sujeira, str(sujeira))
+
+    p.secao("excluir pelo menu da arvore")
+    # Signal(dict) fazia o PySide entregar uma copia do node no slot, e o find_parent
+    # compara por identidade: o excluir do menu nao achava o pai e nao apagava nada.
+    # O teste vai pelo sinal de proposito, que e o caminho onde isso quebrava.
+    def requests_de(nos, saida=None):
+        saida = saida if saida is not None else []
+        for no in nos or []:
+            if no.get("type") == "request":
+                saida.append(no)
+            requests_de(no.get("items"), saida)
+        return saida
+
+    vitima = requests_de(janela.tree_data.get("collections"))[0]
+    vitima_id = vitima.get("id")
+    original = QMessageBox.question
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    try:
+        janela.tree_panel.exclusao_pedida.emit(vitima)
+    finally:
+        QMessageBox.question = original
+    janela._save_now()
+    p.confere(
+        "excluir pelo sinal do menu tira da arvore",
+        vitima_id not in {n.get("id") for n in requests_de(janela.tree_data.get("collections"))},
+    )
+    p.confere(
+        "e tira do disco tambem",
+        vitima_id not in {
+            n.get("id") for n in requests_de(ws.read_tree(janela.workspace_id).get("collections"))
+        },
+    )
 
     p.secao("edicao por fora aparece na tela")
     import yaml
