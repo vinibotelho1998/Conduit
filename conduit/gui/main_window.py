@@ -1,4 +1,4 @@
-"""Janela principal do Dbx Wire."""
+"""Janela principal do Conduit."""
 
 from __future__ import annotations
 
@@ -585,7 +585,7 @@ class MainWindow(QMainWindow):
         ws.write_preferences(densidade=densidade)
         self._marcar_tema_no_menu()
         self.registrar(f"densidade {densidade}", "info", 3)
-        self.registrar("reabra o Dbx Wire pra grade e arvore usarem a nova altura de linha por completo", "info", 6)
+        self.registrar("reabra o Conduit pra grade e arvore usarem a nova altura de linha por completo", "info", 6)
 
     def _load_registry(self) -> None:
         registry = ws.list_workspaces()
@@ -690,7 +690,7 @@ class MainWindow(QMainWindow):
         """Rascunho escrito por fora entra como alteracao pendente, e nao como salvo.
 
         Editar o yaml da collection por fora chega na aba ja como conteudo gravado, e
-        ai nao ha o que desfazer. Escrevendo em .dbxwire/rascunhos.json a alteracao
+        ai nao ha o que desfazer. Escrevendo em .conduit/rascunhos.json a alteracao
         chega marcada como nao salva: da pra ver a bolinha, comparar, salvar com Ctrl+S
         ou descartar fechando a aba.
         """
@@ -799,7 +799,7 @@ class MainWindow(QMainWindow):
         try:
             entry = ws.create_workspace(name.strip())
         except ValueError as exc:
-            QMessageBox.warning(self, "Dbx Wire", str(exc))
+            QMessageBox.warning(self, "Conduit", str(exc))
             return
         self._load_registry()
         self.load_workspace(entry["id"])
@@ -1238,7 +1238,7 @@ class MainWindow(QMainWindow):
         self.tabs.setTabToolTip(index, dica)
 
     def _guardar_rascunhos(self) -> None:
-        """Grava as copias em aberto em .dbxwire, que fica fora do git.
+        """Grava as copias em aberto em .conduit, que fica fora do git.
 
         Sem isso, fechar o app com aba alterada perderia a alteracao. Com isso o
         rascunho volta na proxima abertura e continua marcado como nao salvo.
@@ -1251,7 +1251,7 @@ class MainWindow(QMainWindow):
         if not self.workspace_id:
             return
         try:
-            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxwire"
+            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".conduit"
             raiz.mkdir(exist_ok=True)
             alvo = raiz / "rascunhos.json"
             if atual:
@@ -1265,14 +1265,14 @@ class MainWindow(QMainWindow):
         if not self.workspace_id:
             return None
         try:
-            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxwire"
+            raiz = Path(ws.get_workspace(self.workspace_id)["path"]) / ".conduit"
         except KeyError:
             return None
         raiz.mkdir(exist_ok=True)
         return raiz / "janela.json"
 
     def _guardar_janela(self) -> None:
-        """Grava a largura das colunas em .dbxwire, que fica fora do git."""
+        """Grava a largura das colunas em .conduit, que fica fora do git."""
         alvo = self._caminho_janela()
         if alvo is None:
             return
@@ -1307,7 +1307,7 @@ class MainWindow(QMainWindow):
         if not self.workspace_id:
             return {}
         try:
-            alvo = Path(ws.get_workspace(self.workspace_id)["path"]) / ".dbxwire" / "rascunhos.json"
+            alvo = Path(ws.get_workspace(self.workspace_id)["path"]) / ".conduit" / "rascunhos.json"
             if alvo.exists():
                 return json.loads(alvo.read_text(encoding="utf-8"))
         except (OSError, KeyError, json.JSONDecodeError):
@@ -2628,14 +2628,14 @@ class MainWindow(QMainWindow):
             quantos = len(conflitos)
             self.statusBar().showMessage(
                 f"salvo, mas {quantos} arquivo(s) tinham mudado por fora. "
-                f"Copia guardada em .dbxwire/conflitos", 12000
+                f"Copia guardada em .conduit/conflitos", 12000
             )
             QMessageBox.warning(
                 self,
                 "Alteracao vinda de fora",
                 f"{quantos} arquivo(s) deste workspace mudaram fora do app desde que ele foi "
                 f"aberto, e acabaram de ser sobrescritos.\n\n"
-                f"Uma copia do que estava no disco ficou em .dbxwire/conflitos, dentro da pasta "
+                f"Uma copia do que estava no disco ficou em .conduit/conflitos, dentro da pasta "
                 f"do workspace.\n\n"
                 + "\n".join(conflitos[:10]),
             )
@@ -2959,7 +2959,7 @@ class MainWindow(QMainWindow):
                 self,
                 "Novidades",
                 "Esta copia do programa veio sem o CHANGELOG.md.\n\n"
-                "O historico de versoes fica em github.com/vinibotelho1998/dbx-wire.",
+                "O historico de versoes fica em github.com/vinibotelho1998/conduit.",
             )
             return
 

@@ -212,7 +212,7 @@ def _jsonplaceholder() -> dict:
                 "POST",
                 f"{base}/posts",
                 headers=[kv("Content-Type", "application/json")],
-                body=json_body('{\n  "title": "Dbx Wire",\n  "body": "criado pelo cliente local",\n  "userId": 1\n}'),
+                body=json_body('{\n  "title": "Conduit",\n  "body": "criado pelo cliente local",\n  "userId": 1\n}'),
             ),
             req(
                 "Atualizar post inteiro",
@@ -305,7 +305,7 @@ def _laboratorio() -> dict:
                         "GET com query",
                         "GET",
                         f"{base}/get",
-                        params=[kv("uf", "MT"), kv("origem", "dbxwire")],
+                        params=[kv("uf", "MT"), kv("origem", "conduit")],
                         docs="O httpbin devolve de volta o que recebeu. Serve pra conferir se "
                         "a variavel foi resolvida antes de sair.",
                     ),
@@ -364,9 +364,9 @@ def _laboratorio() -> dict:
                     req(
                         "Basic auth",
                         "GET",
-                        f"{base}/basic-auth/dbx/segredo",
+                        f"{base}/basic-auth/conduit/segredo",
                         docs="A aba Auth resolve isso: escolha Basic e preencha usuario e "
-                        "senha, em vez de montar o header na mao. O usuario e dbx e a senha "
+                        "senha, em vez de montar o header na mao. O usuario e conduit e a senha "
                         "e segredo.",
                     ),
                     req(
@@ -409,7 +409,7 @@ def examples_tree() -> dict:
         kv("postId", "1"),
         kv("githubUser", "vinibotelho1998"),
         kv("owner", "vinibotelho1998"),
-        kv("repo", "dbx-wire"),
+        kv("repo", "conduit"),
         kv("lat", "-15.6014"),
         kv("lon", "-56.0979"),
         secret("tokenExemplo", "token-de-mentira-so-pra-demonstrar"),

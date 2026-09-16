@@ -1,4 +1,4 @@
-"""Registro e acesso aos workspaces do Dbx Wire.
+"""Registro e acesso aos workspaces do Conduit.
 
 Cada workspace e uma pasta isolada com suas proprias collections, environments,
 cofre e historico. Nada vaza de um workspace pro outro.
@@ -22,22 +22,25 @@ from . import storage
 from .vault import Vault
 
 def _raiz_de_dados() -> Path:
-    """Pasta de dados. Mudou de DBX-MAN pra DBX-Wire junto com o nome do programa.
+    """Pasta de dados. Ja mudou de nome duas vezes junto com o programa.
 
-    Se a antiga existir e a nova nao, move de uma vez. Deixar as duas seria pior:
-    o app leria de uma e o usuario procuraria na outra.
+    Se alguma das antigas existir e a nova nao, move de uma vez. Deixar as duas
+    seria pior: o app leria de uma e o usuario procuraria na outra.
     """
-    definido = os.environ.get("DBXWIRE_HOME")
+    definido = os.environ.get("CONDUIT_HOME")
     if definido:
         return Path(definido)
 
-    nova = Path.home() / "Dbx-Wire"
-    antiga = Path.home() / "DBX-MAN"
-    if antiga.exists() and not nova.exists():
-        try:
-            antiga.rename(nova)
-        except OSError:
-            return antiga
+    nova = Path.home() / "Conduit"
+    if not nova.exists():
+        for nome in ("Dbx-Wire", "DBX-MAN"):
+            antiga = Path.home() / nome
+            if antiga.exists():
+                try:
+                    antiga.rename(nova)
+                except OSError:
+                    return antiga
+                break
     return nova
 
 
@@ -51,13 +54,13 @@ COLORS = ["#8e8e95", "#3ecf8e", "#ff9a3c", "#5aa9e6", "#ff5f70", "#2dd4bf"]
 
 # O que nunca pode ir pro git de um workspace compartilhado: o environment versionado
 # carrega o contrato, os nomes das variaveis, e o valor secreto fica no cofre local.
-GITIGNORE = """# gerado pelo Dbx Wire
+GITIGNORE = """# gerado pelo Conduit
 .secrets/
 certs/
 history/
 cookies/
 ai-log/
-.dbxwire/
+.conduit/
 tree.json.migrado
 *.tmp
 """
@@ -75,7 +78,7 @@ def _now() -> str:
 
 def ensure_root() -> None:
     WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
-    (ROOT / ".dbxwire").mkdir(exist_ok=True)
+    (ROOT / ".conduit").mkdir(exist_ok=True)
     if not REGISTRY.exists():
         _write_registry({"schemaVersion": 1, "active": None, "workspaces": []})
 
@@ -167,7 +170,7 @@ def get_workspace(wid: str) -> dict:
         if w["id"] != wid:
             continue
         # O registro guarda caminho absoluto. Se a pasta de dados mudou de lugar, como
-        # aconteceu na troca de DBX-MAN pra DBX-Wire, o caminho antigo aponta pro vazio
+        # aconteceu nas trocas de nome da pasta, o caminho antigo aponta pro vazio
         # e o app leria um workspace em branco. Conserta na hora e grava de volta.
         caminho = Path(w.get("path", ""))
         esperado = WORKSPACES_DIR / wid
@@ -202,7 +205,7 @@ def set_color(wid: str, cor: str) -> dict:
 
 
 def delete_workspace(wid: str, apagar_arquivos: bool = False) -> dict:
-    """Tira do registro. Com apagar_arquivos, move a pasta pra lixeira do Dbx Wire.
+    """Tira do registro. Com apagar_arquivos, move a pasta pra lixeira do Conduit.
 
     Nao apaga de vez nem com apagar_arquivos ligado. Workspace guarda meses de trabalho,
     e uma confirmacao errada nao pode ser irreversivel.

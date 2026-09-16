@@ -1,4 +1,4 @@
-# Novidades do Dbx Wire
+# Novidades do Conduit
 
 ## 0.7.0, 5 de setembro de 2026
 
@@ -156,7 +156,7 @@
   pra jogar a copia fora e voltar pro que esta no disco
 - Botao Salvar do lado do Send, apagado enquanto nao ha o que salvar
 - Fechar aba com alteracao pergunta antes: salvar, descartar ou cancelar
-- O rascunho vai pro disco sozinho, em .dbxwire, que fica fora do git. Fechar o app com
+- O rascunho vai pro disco sozinho, em .conduit, que fica fora do git. Fechar o app com
   aba alterada nao perde nada: na proxima abertura ela volta, ainda marcada como nao
   salva
 - Enviar usa sempre o que esta na tela, salvo ou nao
@@ -251,7 +251,7 @@
 
 ## 0.2.0, 24 de agosto de 2026
 
-Nome e identidade. O programa passou a se chamar **Dbx Wire**, e o simbolo virou a linha
+Nome e identidade. O programa passou a se chamar **Conduit**, e o simbolo virou a linha
 de pulso: sai reto, dispara no pico e volta ao normal quando a resposta chega. O icone e
 desenhado em codigo, sem arquivo de arte no repo, e sai nitido de 16 a 256 pixels.
 
@@ -304,7 +304,7 @@ desenhado em codigo, sem arquivo de arte no repo, e sai nitido de 16 a 256 pixel
 
 - Um arquivo YAML por item no disco, pronto pra git. Uma edicao toca um arquivo so
 - Deteccao de escrita concorrente: se um arquivo mudou por fora, uma copia vai pra
-  .dbxwire/conflitos antes de sobrescrever
+  .conduit/conflitos antes de sobrescrever
 - Desfazer na arvore com Ctrl+Z, guardando as ultimas 30 mudancas de estrutura
 - .gitignore gerado em cada workspace, deixando cofre, historico e certificados de fora
 

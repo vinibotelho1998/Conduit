@@ -33,6 +33,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 SCHEMA_VERSION = 1
 ARQUIVO = "vault.dbx"
+# Entropia do DPAPI. Nao se troca junto com o nome do programa: ela entra na
+# derivacao e mudar o valor torna ilegivel todo cofre ja gravado.
 ENTROPIA = b"dbxwire-vault-v1"
 
 

@@ -114,7 +114,7 @@ def contexto_ssl(
         contexto.check_hostname = False
         contexto.verify_mode = ssl.CERT_NONE
 
-    descritor, temporario = tempfile.mkstemp(suffix=".pem", prefix="dbxwire-")
+    descritor, temporario = tempfile.mkstemp(suffix=".pem", prefix="conduit-")
     try:
         os.write(descritor, pem)
     finally:

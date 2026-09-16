@@ -52,10 +52,10 @@ class Placar:
 
 
 def casa_limpa(nome: str) -> Path:
-    """Pasta de dados so deste teste. Nunca encosta no Dbx-Wire de verdade."""
-    destino = Path(tempfile.gettempdir()) / f"dbxwire-teste-{nome}"
+    """Pasta de dados so deste teste. Nunca encosta no Conduit de verdade."""
+    destino = Path(tempfile.gettempdir()) / f"conduit-teste-{nome}"
     shutil.rmtree(destino, ignore_errors=True)
-    os.environ["DBXWIRE_HOME"] = str(destino)
+    os.environ["CONDUIT_HOME"] = str(destino)
     return destino
 
 

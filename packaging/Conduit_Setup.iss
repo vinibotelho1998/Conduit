@@ -1,15 +1,15 @@
-; Instalador do Dbx Wire.
+; Instalador do Conduit.
 ;
-; Compile por packaging/DbxWire.spec (PyInstaller) e depois este arquivo. A versao
+; Compile por packaging/Conduit.spec (PyInstaller) e depois este arquivo. A versao
 ; vem de /DMyAppVersion, passada pelo CI, com uma reserva pra compilar na mao.
 
-#define MyAppName "Dbx Wire"
+#define MyAppName "Conduit"
 #ifndef MyAppVersion
   #define MyAppVersion "0.6.0"
 #endif
-#define MyAppPublisher "Dbx"
-#define MyAppExeName "DbxWire.exe"
-#define MyAppUrl "https://github.com/vinibotelho1998/dbx-wire"
+#define MyAppPublisher "Vinicius Botelho"
+#define MyAppExeName "Conduit.exe"
+#define MyAppUrl "https://github.com/vinibotelho1998/conduit"
 
 [Setup]
 ; AppId fixo e unico: e' por ele que o Windows reconhece uma atualizacao no lugar
@@ -36,11 +36,11 @@ DisableDirPage=auto
 LicenseFile=..\LICENSE
 
 OutputDir=..\dist
-OutputBaseFilename=DbxWire-Setup
+OutputBaseFilename=Conduit-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=..\assets\dbxwire.ico
+SetupIconFile=..\assets\conduit.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName} {#MyAppVersion}
 
@@ -50,7 +50,7 @@ MinVersion=10.0
 PrivilegesRequired=lowest
 CloseApplications=yes
 RestartApplications=no
-SetupMutex=DbxWireSetupMutex
+SetupMutex=ConduitSetupMutex
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -59,7 +59,7 @@ Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortugue
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; GroupDescription: "Atalhos:"
 
 [Files]
-Source: "..\dist\DbxWire\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\Conduit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -75,7 +75,7 @@ Type: filesandordirs; Name: "{app}\_internal\__pycache__"
 // Comentario aqui dentro e' com duas barras, e nao com ponto e virgula: o [Code] e'
 // Pascal Script, e o ; so' comenta nas outras secoes do .iss.
 //
-// Dados ficam em %USERPROFILE%\Dbx-Wire, fora da pasta de instalacao, entao
+// Dados ficam em %USERPROFILE%\Conduit, fora da pasta de instalacao, entao
 // desinstalar nunca apaga workspace nem cofre de segredos sem perguntar.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
@@ -83,7 +83,7 @@ var
 begin
   if CurUninstallStep <> usPostUninstall then
     Exit;
-  Dados := ExpandConstant('{%USERPROFILE}\Dbx-Wire');
+  Dados := ExpandConstant('{%USERPROFILE}\Conduit');
   if not DirExists(Dados) then
     Exit;
   MsgBox('Os workspaces continuam em ' + Dados + #13#10 +

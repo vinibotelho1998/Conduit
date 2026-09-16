@@ -44,7 +44,7 @@ jobs:
         # nova; rodando antes, todo build quebrado deixava um commit de versao no
         # repositorio pra um instalador que nunca chegou a existir.
         run: |
-          $conteudo = Get-Content -Path "dbxwire/__init__.py" -Raw
+          $conteudo = Get-Content -Path "conduit/__init__.py" -Raw
           $m = [regex]::Match($conteudo, '__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"')
           if (-not $m.Success) { throw "Nao achei __version__ no formato X.Y.Z" }
           $major = [int]$m.Groups[1].Value
@@ -53,25 +53,25 @@ jobs:
           $nova = "$major.$minor.$patch"
 
           $conteudo = $conteudo -replace '__version__\s*=\s*"\d+\.\d+\.\d+"', "__version__ = `"$nova`""
-          Set-Content -Path "dbxwire/__init__.py" -Value $conteudo -NoNewline
+          Set-Content -Path "conduit/__init__.py" -Value $conteudo -NoNewline
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dbxwire/__init__.py
+          git add conduit/__init__.py
           git commit -m "chore: incrementa versao para $nova [skip ci]"
           git push origin HEAD:main
 
           echo "numero=$nova" >> $env:GITHUB_OUTPUT
 
       - name: Build do app (PyInstaller)
-        run: pyinstaller packaging/DbxWire.spec --noconfirm --distpath dist --workpath build
+        run: pyinstaller packaging/Conduit.spec --noconfirm --distpath dist --workpath build
 
       - name: Instalar Inno Setup
         run: choco install innosetup --no-progress -y
 
       - name: Compilar instalador
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.versao.outputs.numero }}" packaging\DbxWire_Setup.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.versao.outputs.numero }}" packaging\Conduit_Setup.iss
 
       - name: Publicar release "latest"
         env:
@@ -85,7 +85,7 @@ jobs:
           gh release delete latest --cleanup-tag --yes 2>$null
           $ErrorActionPreference = 'Stop'
 
-          gh release create latest "dist/DbxWire-Setup.exe" `
-            --title "Dbx Wire v${{ steps.versao.outputs.numero }}" `
+          gh release create latest "dist/Conduit-Setup.exe" `
+            --title "Conduit v${{ steps.versao.outputs.numero }}" `
             --notes "Instalador gerado automaticamente do commit ${{ github.sha }} (versao ${{ steps.versao.outputs.numero }})." `
             --latest

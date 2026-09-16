@@ -21,9 +21,9 @@ casa_limpa("interface")
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
-from dbxwire import recursos, seed as mod_seed  # noqa: E402
-from dbxwire.core import codegen, curl_import, examples, sftp, workspaces as ws  # noqa: E402
-from dbxwire.gui import theme, tokens  # noqa: E402
+from conduit import recursos, seed as mod_seed  # noqa: E402
+from conduit.core import codegen, curl_import, examples, sftp, workspaces as ws  # noqa: E402
+from conduit.gui import theme, tokens  # noqa: E402
 
 
 def saturacao(cor: str) -> float:
@@ -51,7 +51,7 @@ def main() -> int:
     app.setPalette(theme.paleta_qt())
     app.setStyleSheet(theme.folha())
 
-    from dbxwire.gui.main_window import MainWindow
+    from conduit.gui.main_window import MainWindow
 
     janela = MainWindow()
     janela.resize(1500, 900)
@@ -242,7 +242,7 @@ def main() -> int:
     p.confere("dica explica o que e", "Workspace aberto" in janela.ws_button.toolTip())
     p.confere("teclado nao nasce no seletor", not janela.ws_button.hasFocus())
 
-    from dbxwire.gui.workspaces_dialog import NOMES_DE_COR, WorkspacesDialog
+    from conduit.gui.workspaces_dialog import NOMES_DE_COR, WorkspacesDialog
 
     p.confere("um nome por cor cadastrada", len(NOMES_DE_COR) == len(ws.COLORS))
     dialogo = WorkspacesDialog(janela)
@@ -277,7 +277,7 @@ def main() -> int:
     # as fontes do sistema, e o resultado mudaria de maquina pra maquina.
     from PySide6.QtGui import QFont
 
-    from dbxwire.gui.request_editor import mono
+    from conduit.gui.request_editor import mono
 
     f = mono(9)
     esperadas = [n.strip() for n in tokens.FAMILIA_MONO.split(",")]
@@ -369,7 +369,7 @@ def main() -> int:
         # chance de recusar. Editar o yaml da collection chegaria ja como salvo.
         import json as _json
 
-        pasta = raiz / ".dbxwire"
+        pasta = raiz / ".conduit"
         pasta.mkdir(exist_ok=True)
         (pasta / "rascunhos.json").write_text(
             _json.dumps({conteudo["id"]: {"url": "https://veio-como-rascunho.exemplo"}}),

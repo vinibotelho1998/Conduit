@@ -123,7 +123,7 @@ def _guardar_conflito(raiz: Path, caminho: Path) -> Path:
     """Salva o arquivo que mudou por fora antes de sobrescrever."""
     from datetime import datetime
 
-    destino = raiz / ".dbxwire" / "conflitos" / datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    destino = raiz / ".conduit" / "conflitos" / datetime.now().strftime("%Y-%m-%d_%H%M%S")
     destino.mkdir(parents=True, exist_ok=True)
     alvo = destino / caminho.name
     alvo.write_bytes(caminho.read_bytes())
@@ -258,7 +258,7 @@ def gravar_workspace(
     """Grava a arvore inteira e apaga o que sobrou. Devolve um resumo do que mexeu.
 
     Com `anterior`, que e a assinatura de quando o workspace foi lido, qualquer arquivo
-    que tenha mudado por fora e copiado pra .dbxwire/conflitos antes de ser sobrescrito.
+    que tenha mudado por fora e copiado pra .conduit/conflitos antes de ser sobrescrito.
     Nada se perde em silencio.
     """
     raiz = Path(raiz)

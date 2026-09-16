@@ -1,4 +1,4 @@
-"""Exercita dbxwire/core/sftp.py contra um servidor SFTP de verdade, local.
+"""Exercita conduit/core/sftp.py contra um servidor SFTP de verdade, local.
 
 Servidor de mentira mas protocolo de verdade: e paramiko atendendo numa porta livre da
 propria maquina. Testar SFTP com dublê de mentira nao prova nada, porque o que costuma
@@ -16,7 +16,7 @@ from pathlib import Path
 from comum import Placar  # noqa: E402  (comum ajusta o sys.path)
 
 import servidor_falso  # noqa: E402
-from dbxwire.core import sftp  # noqa: E402
+from conduit.core import sftp  # noqa: E402
 
 
 def main() -> int:

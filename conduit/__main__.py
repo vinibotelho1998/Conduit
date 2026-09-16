@@ -1,4 +1,4 @@
-"""Ponto de entrada: python -m dbxwire"""
+"""Ponto de entrada: python -m conduit"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from . import APP_NAME, __version__
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="dbxwire", description=f"{APP_NAME}, cliente de API local"
+        prog="conduit", description=f"{APP_NAME}, cliente de API local"
     )
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {__version__}")
     sub = parser.add_subparsers(dest="cmd")

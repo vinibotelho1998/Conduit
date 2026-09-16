@@ -117,7 +117,7 @@ class RequestEditor(QWidget):
 
         # Escrever {{algo}} que ainda nao existe cria a variavel sozinho, no ambiente
         # ativo. Espera voce parar de digitar, senao {{appClientId}} nasceria como
-        # {{a}}, {{ap}}, {{appC}} enquanto a mao anda.
+        # {{t}}, {{to}}, {{tok}} enquanto a mao anda.
         self._timer_novas = QTimer(self)
         self._timer_novas.setSingleShot(True)
         self._timer_novas.setInterval(900)

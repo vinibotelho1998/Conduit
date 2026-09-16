@@ -1,6 +1,6 @@
-# Dbx Wire
+# Conduit
 
-[![Build](https://github.com/vinibotelho1998/dbx-wire/actions/workflows/release.yml/badge.svg)](https://github.com/vinibotelho1998/dbx-wire/actions/workflows/release.yml)
+[![Build](https://github.com/vinibotelho1998/Conduit/actions/workflows/release.yml/badge.svg)](https://github.com/vinibotelho1998/Conduit/actions/workflows/release.yml)
 ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -11,7 +11,7 @@ existe telemetria.
 
 ## Instalação
 
-Baixe o **DbxWire-Setup.exe** da [última release](https://github.com/vinibotelho1998/dbx-wire/releases/latest),
+Baixe o **Conduit-Setup.exe** da [última release](https://github.com/vinibotelho1998/Conduit/releases/latest),
 execute e pronto. Não precisa de Python nem do repositório.
 
 ## Rodar a partir do código-fonte
@@ -21,7 +21,7 @@ Precisa de Python 3.13 ou mais novo.
 ```
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python -m dbxwire
+.venv\Scripts\python -m conduit
 ```
 
 ## Testes
@@ -58,7 +58,7 @@ antes de gerar o instalador.
 
 ## Onde ficam os dados
 
-Fora do repositorio, em `%USERPROFILE%\Dbx-Wire`, um diretorio por workspace. Cada
+Fora do repositorio, em `%USERPROFILE%\Conduit`, um diretorio por workspace. Cada
 request e um arquivo YAML, entao o diff do git mostra a mudanca de verdade em vez de uma
 linha gigante.
 
@@ -81,9 +81,9 @@ num header conhecido, e o basic ainda embaralha usuario e senha em base64.
 ## Estrutura
 
 ```
-dbxwire/core/    modelo, motor de envio, storage, cofre, historico, formatos, sftp
-dbxwire/gui/     janela, arvore, editor, resposta, navegador sftp, dialogos
-dbxwire/gui/tokens.py   cor, espaco, raio e fonte. Toda a interface sai daqui
+conduit/core/    modelo, motor de envio, storage, cofre, historico, formatos, sftp
+conduit/gui/     janela, arvore, editor, resposta, navegador sftp, dialogos
+conduit/gui/tokens.py   cor, espaco, raio e fonte. Toda a interface sai daqui
 CHANGELOG.md     o que mudou em cada versao
 ```
 

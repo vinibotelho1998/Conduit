@@ -8,7 +8,7 @@ ROOT = os.path.dirname(SPECPATH)
 def _versao():
     """Le __version__ do pacote. O CI incrementa esse numero antes de chamar aqui, e a
     versao gravada no .exe tem que ser a mesma que a janela Sobre mostra."""
-    fonte = open(os.path.join(ROOT, "dbxwire", "__init__.py"), encoding="utf-8").read()
+    fonte = open(os.path.join(ROOT, "conduit", "__init__.py"), encoding="utf-8").read()
     achado = re.search(r'__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"', fonte)
     return tuple(int(n) for n in achado.groups()) + (0,) if achado else (0, 0, 0, 0)
 
@@ -28,13 +28,13 @@ with open(VERSION_FILE, "w", encoding="utf-8") as saida:
   kids=[
     StringFileInfo([
       StringTable("040904B0", [
-        StringStruct("CompanyName", "Dbx"),
-        StringStruct("FileDescription", "Dbx Wire, cliente de API local"),
+        StringStruct("CompanyName", "Vinicius Botelho"),
+        StringStruct("FileDescription", "Conduit, cliente de API local"),
         StringStruct("FileVersion", "{VERSAO_TEXTO}"),
-        StringStruct("InternalName", "DbxWire"),
-        StringStruct("LegalCopyright", "Dbx. Licenca MIT."),
-        StringStruct("OriginalFilename", "DbxWire.exe"),
-        StringStruct("ProductName", "Dbx Wire"),
+        StringStruct("InternalName", "Conduit"),
+        StringStruct("LegalCopyright", "Vinicius Botelho. Licenca MIT."),
+        StringStruct("OriginalFilename", "Conduit.exe"),
+        StringStruct("ProductName", "Conduit"),
         StringStruct("ProductVersion", "{VERSAO_TEXTO}"),
       ])
     ]),
@@ -105,7 +105,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="DbxWire",
+    name="Conduit",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -116,7 +116,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.join(ROOT, "assets", "dbxwire.ico"),
+    icon=os.path.join(ROOT, "assets", "conduit.ico"),
     version=VERSION_FILE,
 )
 coll = COLLECT(
@@ -126,5 +126,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="DbxWire",
+    name="Conduit",
 )

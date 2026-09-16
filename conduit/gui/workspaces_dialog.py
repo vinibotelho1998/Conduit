@@ -419,7 +419,7 @@ class WorkspacesDialog(QDialog):
             f"{self._contar(entrada)}\n\n"
             "Tirar da lista deixa a pasta intacta no disco, da pra voltar depois.\n"
             "Mover pra lixeira tira a pasta do lugar, mas nao apaga: ela vai pra "
-            "lixeira do Dbx Wire e pode ser recuperada na mao."
+            "lixeira do Conduit e pode ser recuperada na mao."
         )
         so_lista = caixa.addButton("Tirar da lista", QMessageBox.ButtonRole.AcceptRole)
         com_arquivos = caixa.addButton("Mover pra lixeira", QMessageBox.ButtonRole.DestructiveRole)

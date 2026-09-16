@@ -9,5 +9,5 @@ venv/
 /build/
 /dist/
 
-# Gerado pelo DbxWire.spec na hora do build
+# Gerado pelo Conduit.spec na hora do build
 packaging/version_info.txt

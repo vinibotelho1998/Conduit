@@ -85,7 +85,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setOrganizationName("Dbx")
+    app.setOrganizationName("Conduit")
     app.setApplicationVersion(__version__)
     app.setStyle("Fusion")
     theme.aplicar(None, preferencias.get("tema"), preferencias.get("densidade"))

@@ -192,7 +192,7 @@ def _item(bruto: dict, avisos: list) -> dict | None:
         node["auth"] = auth
 
     if bruto.get("event"):
-        avisos.append(f"scripts de {nome} nao vieram, o Dbx Wire ainda nao roda script")
+        avisos.append(f"scripts de {nome} nao vieram, o Conduit ainda nao roda script")
 
     return node
 
@@ -355,7 +355,7 @@ def exportar_collection(colecao: dict, destino: Path) -> Path:
         "info": {
             "name": colecao.get("name") or "collection",
             "schema": SCHEMA,
-            "_exporter_id": "dbx-wire",
+            "_exporter_id": "conduit",
         },
         "item": [_item_para(f) for f in colecao.get("items") or []],
     }
@@ -391,7 +391,7 @@ def exportar_environment(env: dict, destino: Path, com_segredo: bool = False) ->
             if v.get("key")
         ],
         "_postman_variable_scope": "environment",
-        "_postman_exported_using": "dbx-wire",
+        "_postman_exported_using": "conduit",
     }
     destino = Path(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)

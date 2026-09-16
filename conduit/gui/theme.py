@@ -721,7 +721,7 @@ def folha() -> str:
     pasta = Path(tempfile.gettempdir())
     pronta = _qss()
     for marca, nome, desenho in _DESENHOS:
-        destino = pasta / f"dbx-wire-{nome}-{NOME}.png"
+        destino = pasta / f"conduit-{nome}-{NOME}.png"
         try:
             if not destino.exists():
                 desenho(destino)

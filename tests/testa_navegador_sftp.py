@@ -21,9 +21,9 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import servidor_falso  # noqa: E402
-from dbxwire.core import sftp, workspaces as ws  # noqa: E402
-from dbxwire.gui import theme  # noqa: E402
-from dbxwire.seed import seed  # noqa: E402
+from conduit.core import sftp, workspaces as ws  # noqa: E402
+from conduit.gui import theme  # noqa: E402
+from conduit.seed import seed  # noqa: E402
 
 
 def main() -> int:
@@ -43,7 +43,7 @@ def main() -> int:
     app.setPalette(theme.paleta_qt())
     app.setStyleSheet(theme.folha())
 
-    from dbxwire.gui.main_window import MainWindow
+    from conduit.gui.main_window import MainWindow
 
     janela = MainWindow()
     janela.resize(1500, 900)
@@ -71,7 +71,7 @@ def main() -> int:
     p.confere("cofre devolve a senha", cofre.get(sftp.CHAVE_SENHA.format(id="gui1")) == servidor_falso.SENHA)
 
     p.secao("conectar")
-    import dbxwire.gui.sftp_dialog as dialogos
+    import conduit.gui.sftp_dialog as dialogos
 
     perguntas: list = []
 

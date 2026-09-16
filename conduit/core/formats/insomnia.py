@@ -68,7 +68,7 @@ def _corpo_de(bruto, avisos: list) -> dict:
         return {"mode": "form", "raw": urlencode(pares)}
 
     if "graphql" in tipo:
-        avisos.append("corpo GraphQL veio como texto, o Dbx Wire ainda nao tem aba propria")
+        avisos.append("corpo GraphQL veio como texto, o Conduit ainda nao tem aba propria")
         return {"mode": "raw", "raw": texto}
 
     if not texto:
@@ -269,7 +269,7 @@ def exportar(tree: dict, colecoes: list, destino: Path, com_segredo: bool = Fals
 
     def identificador(prefixo: str) -> str:
         contador["n"] += 1
-        return f"{prefixo}_dbxwire{contador['n']:04d}"
+        return f"{prefixo}_conduit{contador['n']:04d}"
 
     def andar(node: dict, pai: str) -> None:
         if node.get("type") == "request":
@@ -366,7 +366,7 @@ def exportar(tree: dict, colecoes: list, destino: Path, com_segredo: bool = Fals
         "_type": "export",
         "__export_format": 4,
         "__export_date": time.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "__export_source": "dbx-wire",
+        "__export_source": "conduit",
         "resources": recursos,
     }
     destino = Path(destino)

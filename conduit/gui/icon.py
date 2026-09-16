@@ -1,4 +1,4 @@
-"""Icone do Dbx Wire, desenhado em codigo.
+"""Icone do Conduit, desenhado em codigo.
 
 Conceito: a linha de pulso. Ela entra reta, dispara num pico, passa do ponto na volta e
 se acalma de novo, que e exatamente o desenho de um request: sai, o servidor responde,

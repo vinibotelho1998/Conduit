@@ -331,13 +331,13 @@ def exportar(tree: dict, colecoes: list, destino: Path, com_segredo: bool = Fals
     for colecao in colecoes:
         andar(colecao.get("items"), [])
 
-    nome = colecoes[0].get("name") if len(colecoes) == 1 else "Dbx Wire"
+    nome = colecoes[0].get("name") if len(colecoes) == 1 else "Conduit"
     spec = {
         "openapi": "3.0.3",
         "info": {
             "title": nome,
             "version": "1.0.0",
-            "description": "Gerado pelo Dbx Wire a partir das collections. "
+            "description": "Gerado pelo Conduit a partir das collections. "
             "E uma aproximacao: nao carrega esquema de resposta.",
         },
         "servers": [{"url": s} for s in sorted(servidores)] or [{"url": "{{baseUrl}}"}],
