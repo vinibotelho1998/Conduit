@@ -8,7 +8,7 @@ sai reto, dispara no pico, e volta ao normal quando a resposta chega.
 APP_NAME = "Conduit"
 APP_ID = "conduit.app"
 
-__version__ = "0.7.4"
+__version__ = "0.7.5"
 VERSION_DATE = "2026-09-05"
 
 # Fases entregues ate aqui, mostradas na janela Sobre.
