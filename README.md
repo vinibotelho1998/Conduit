@@ -92,3 +92,6 @@ CHANGELOG.md     o que mudou em cada versao
 ## Licença
 
 Distribuído sob a [licença MIT](LICENSE).
+
+O que este projeto usa de terceiros está listado no [NOTICE.md](NOTICE.md).
+
