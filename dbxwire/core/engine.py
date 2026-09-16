@@ -179,7 +179,10 @@ def send(prepared: Prepared) -> dict:
             # O cookie tem que sair do cliente, e nao da resposta. Num redirect o
             # Set-Cookie vem na resposta intermediaria, e a final nao carrega nada.
             # O cliente acumula a cadeia toda.
-            cookies_finais = dict(client.cookies)
+            # Pelo jar, e nao por dict(client.cookies): o mapping do httpx indexa
+            # por nome e levanta CookieConflict quando o mesmo nome existe em dois
+            # domain/path. Aqui o ultimo gravado vence.
+            cookies_finais = {c.name: c.value for c in client.cookies.jar}
         elapsed = round((time.perf_counter() - started) * 1000)
         return {
             "ok": True,
