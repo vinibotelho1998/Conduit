@@ -9,6 +9,8 @@ Cliente de API de mesa, com navegador SFTP embutido, feito do zero em Python com
 PySide6. Nada sai da maquina sem voce mandar: nao existe conta, nao existe nuvem e nao
 existe telemetria.
 
+![Interface do Conduit](docs/screenshot.png)
+
 ## Instalação
 
 Baixe o **Conduit-Setup.exe** da [última release](https://github.com/vinibotelho1998/Conduit/releases/latest),

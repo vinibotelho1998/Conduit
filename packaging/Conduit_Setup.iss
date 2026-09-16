@@ -9,7 +9,7 @@
 #endif
 #define MyAppPublisher "Vinicius Botelho"
 #define MyAppExeName "Conduit.exe"
-#define MyAppUrl "https://github.com/vinibotelho1998/conduit"
+#define MyAppUrl "https://github.com/vinibotelho1998/Conduit"
 
 [Setup]
 ; AppId fixo e unico: e' por ele que o Windows reconhece uma atualizacao no lugar
