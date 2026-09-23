@@ -234,6 +234,9 @@ class SftpBrowser(QWidget):
         tl.setContentsMargins(2, 0, 0, 0)
         tl.setSpacing(6)
         self.espiada_nome = QLabel("")
+        # nome de arquivo vem do servidor, e com cara de tag viraria HTML que carrega
+        # imagem de caminho de rede, ver widgets.dica_de_fora
+        self.espiada_nome.setTextFormat(Qt.TextFormat.PlainText)
         self.espiada_nome.setObjectName("sectionTitle")
         tl.addWidget(self.espiada_nome)
         tl.addStretch(1)
@@ -259,6 +262,7 @@ class SftpBrowser(QWidget):
         linha.setSpacing(10)
 
         self.resumo = QLabel("")
+        self.resumo.setTextFormat(Qt.TextFormat.PlainText)
         self.resumo.setObjectName("hint")
         linha.addWidget(self.resumo)
         linha.addStretch(1)
@@ -270,6 +274,7 @@ class SftpBrowser(QWidget):
         linha.addWidget(self.barra)
 
         self.transferindo = QLabel("")
+        self.transferindo.setTextFormat(Qt.TextFormat.PlainText)
         self.transferindo.setObjectName("hint")
         self.transferindo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         linha.addWidget(self.transferindo)
@@ -469,7 +474,7 @@ class SftpBrowser(QWidget):
 
         if len(escolhidas) == 1:
             destino, _ = QFileDialog.getSaveFileName(
-                self, "Salvar como", str(Path.home() / "Downloads" / escolhidas[0].nome)
+                self, "Salvar como", str(sftp.destino_local(Path.home() / "Downloads", escolhidas[0].nome))
             )
             if not destino:
                 return
@@ -480,7 +485,8 @@ class SftpBrowser(QWidget):
             )
             if not pasta:
                 return
-            alvos = [(e, Path(pasta) / e.nome) for e in escolhidas]
+            # o nome vem do servidor, e em lote ninguem ve o caminho antes de gravar
+            alvos = [(e, sftp.destino_local(pasta, e.nome)) for e in escolhidas]
 
         self._fila_transferencia(alvos, enviando=False)
 

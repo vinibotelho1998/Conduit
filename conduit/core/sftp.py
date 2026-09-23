@@ -28,6 +28,7 @@ mesmo canal.
 from __future__ import annotations
 
 import posixpath
+import re
 import secrets
 import stat as statmod
 import threading
@@ -97,15 +98,22 @@ class Perfil:
 
     @classmethod
     def de_dict(cls, dados: dict) -> "Perfil":
+        # O settings.yaml tambem e editado na mao. Porta que nao e numero estourava
+        # ValueError na abertura do workspace; aqui ela vira 0, e o problema() diz o que
+        # falta em vez de o app nao abrir.
+        try:
+            porta = int(dados.get("port") or PORTA_PADRAO)
+        except (TypeError, ValueError):
+            porta = 0
         return cls(
-            id=dados.get("id") or novo_id(),
-            nome=dados.get("name") or dados.get("host") or "servidor",
-            host=dados.get("host") or "",
-            porta=int(dados.get("port") or PORTA_PADRAO),
-            usuario=dados.get("user") or "",
-            auth=dados.get("auth") or "senha",
-            chave=dados.get("keyFile") or "",
-            raiz=dados.get("root") or "",
+            id=str(dados.get("id") or novo_id()),
+            nome=str(dados.get("name") or dados.get("host") or "servidor"),
+            host=str(dados.get("host") or ""),
+            porta=porta,
+            usuario=str(dados.get("user") or ""),
+            auth=str(dados.get("auth") or "senha"),
+            chave=str(dados.get("keyFile") or ""),
+            raiz=str(dados.get("root") or ""),
         )
 
     def para_dict(self) -> dict:
@@ -141,7 +149,7 @@ class Perfil:
 
 
 def listar_perfis(tree: dict) -> list[Perfil]:
-    return [Perfil.de_dict(item) for item in tree.get("sftp") or []]
+    return [Perfil.de_dict(item) for item in tree.get("sftp") or [] if isinstance(item, dict)]
 
 
 def gravar_perfis(tree: dict, perfis: list[Perfil]) -> None:
@@ -194,6 +202,40 @@ def juntar(base: str, nome: str) -> str:
 
 def pai(caminho: str) -> str:
     return posixpath.dirname(caminho.rstrip("/")) or "/"
+
+
+# O que o Windows nao aceita em nome de arquivo, e os nomes que ele reserva pra dispositivo.
+_PROIBIDO_NO_WINDOWS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+_RESERVADOS_NO_WINDOWS = {
+    "con", "prn", "aux", "nul", "conin$", "conout$",
+    *(f"com{n}" for n in [*range(1, 10), "¹", "²", "³"]),
+    *(f"lpt{n}" for n in [*range(1, 10), "¹", "²", "³"]),
+}
+
+
+def nome_local(nome: str) -> str:
+    """O nome que vem do servidor, pronto pra virar arquivo nesta maquina.
+
+    Nome de arquivo remoto e texto de terceiro. Barra invertida e valida num nome POSIX
+    e aqui vira separador de pasta, entao `..\\..\\x.bat` baixado em lote saia da pasta
+    escolhida. Dois pontos abriam um fluxo alternativo do NTFS, e `relatorio 12:30.csv`
+    chegava como um arquivo `relatorio 12` aparentemente vazio.
+    """
+    # so no fim: ponto e espaco no fim o Windows descarta, e no comeco o ponto e o do
+    # arquivo oculto, como .env e .htaccess, que perdia o ponto no download
+    limpo = _PROIBIDO_NO_WINDOWS.sub("_", nome or "").rstrip(" .")
+    if not limpo:
+        return "arquivo"
+    # o Windows ignora o espaco antes do ponto ao reconhecer o dispositivo: "nul .txt"
+    # tambem e o NUL
+    if limpo.split(".")[0].rstrip().lower() in _RESERVADOS_NO_WINDOWS:
+        limpo = "_" + limpo
+    return limpo
+
+
+def destino_local(pasta: str | Path, nome: str) -> Path:
+    """Caminho dentro de `pasta` pra um arquivo remoto, sem sair dela."""
+    return Path(pasta) / nome_local(nome)
 
 
 def migalhas(caminho: str) -> list[tuple[str, str]]:
@@ -290,7 +332,13 @@ class Conexao:
                 self.digital = _digital(chave_servidor)
 
         self._cliente = cliente
-        self._sftp = cliente.open_sftp()
+        try:
+            self._sftp = cliente.open_sftp()
+        except Exception as exc:  # noqa: BLE001
+            # servidor so de shell aceita o login e recusa o subsistema. Sem fechar aqui,
+            # o transporte ficava vivo, com a thread e o socket dele, sem aba nenhuma
+            self.fechar()
+            raise ErroSftp(f"o servidor aceitou o login mas recusou o SFTP: {exc}") from exc
         if self.perfil.raiz:
             try:
                 self._sftp.chdir(self.perfil.raiz)
@@ -298,19 +346,25 @@ class Conexao:
                 pass
 
     def fechar(self) -> None:
-        with self._cadeado:
-            for alvo in (self._sftp, self._cliente):
-                try:
-                    if alvo is not None:
-                        alvo.close()
-                except Exception:  # noqa: BLE001
-                    pass
-            self._sftp = None
-            self._cliente = None
+        # Sem o cadeado de proposito. Quem segura o cadeado e a operacao em curso, e uma
+        # transferencia grande ou um servidor que parou de responder seguravam o fechar
+        # junto, com a janela inteira congelada ate o fim. Fechar o canal por fora e o
+        # que faz a operacao presa estourar e soltar o cadeado.
+        canal, cliente = self._sftp, self._cliente
+        self._sftp = None
+        self._cliente = None
+        for alvo in (canal, cliente):
+            try:
+                if alvo is not None:
+                    alvo.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     @property
     def aberta(self) -> bool:
-        transporte = self._cliente.get_transport() if self._cliente is not None else None
+        # copia local: o fechar roda sem cadeado e pode zerar o cliente entre o teste e o uso
+        cliente = self._cliente
+        transporte = cliente.get_transport() if cliente is not None else None
         return bool(transporte is not None and transporte.is_active())
 
     def _canal(self):
@@ -395,6 +449,14 @@ class Conexao:
             except OSError as exc:
                 parcial.unlink(missing_ok=True)
                 raise ErroSftp(f"falhou ao baixar {posixpath.basename(remoto)}: {exc}") from exc
+            except Exception as exc:  # noqa: BLE001
+                # conexao que cai no meio vem do paramiko como SSHException ou EOFError,
+                # que nao sao OSError: o .parcial ficava pra tras na pasta de destino
+                parcial.unlink(missing_ok=True)
+                raise ErroSftp(
+                    f"a conexao caiu enquanto baixava {posixpath.basename(remoto)}: "
+                    f"{type(exc).__name__} {exc}".strip()
+                ) from exc
         return destino
 
     def enviar(self, local: str | Path, remoto: str, progresso=None) -> str:
@@ -499,8 +561,14 @@ def _carregar_chave(caminho: str, frase: str):
     if not alvo.exists():
         raise ErroSftp(f"nao encontrei a chave em {alvo}")
 
+    # DSSKey saiu do paramiko na versao 4. Citada direto, a tupla estourava AttributeError
+    # antes de tentar qualquer tipo, e nenhuma chave privada conectava.
+    classes = [paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey]
+    if hasattr(paramiko, "DSSKey"):
+        classes.append(paramiko.DSSKey)
+
     erro_frase = False
-    for classe in (paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey, paramiko.DSSKey):
+    for classe in classes:
         try:
             return classe.from_private_key_file(str(alvo), password=frase or None)
         except paramiko.PasswordRequiredException:
