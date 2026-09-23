@@ -454,7 +454,12 @@ def ensure_examples(force: bool = False) -> str:
     existe = any(entry["id"] == EXAMPLES_ID for entry in registry["workspaces"])
 
     if not existe:
+        # tirado da lista, o de exemplos volta na abertura seguinte. Volta com o que a
+        # pessoa ja tinha posto nele: regravar os exemplos por cima apagava o resto
+        adotado = ws.ja_existe_no_disco(EXAMPLES_ID)
         ws.create_workspace("Exemplos", ws.COLORS[0])
+        if adotado and not force:
+            return EXAMPLES_ID
     elif not force:
         return EXAMPLES_ID
 

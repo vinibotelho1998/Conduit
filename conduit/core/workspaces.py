@@ -9,6 +9,7 @@ antigo ainda e lido uma unica vez, pra migrar quem ja tinha dados, e vira backup
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -149,10 +150,19 @@ def create_workspace(name: str, color: str | None = None) -> dict:
         reg["active"] = wid
     _write_registry(reg)
 
+    # Pasta que ja tem workspace dentro e um que foi tirado da lista voltando, e a tela de
+    # excluir promete justamente isso. Ela e adotada como esta: gravar a arvore vazia por
+    # cima apagava cada request, ambiente e global que estava la.
     tree_path = path / "tree.json"
-    if not tree_path.exists():
+    if not tree_path.exists() and not (path / "settings.yaml").exists():
         write_tree(wid, {"schemaVersion": 1, "environments": [], "collections": []})
     return entry
+
+
+def ja_existe_no_disco(wid: str) -> bool:
+    """Se a pasta desse id ja guarda um workspace, mesmo fora do registro."""
+    pasta = WORKSPACES_DIR / wid
+    return (pasta / "settings.yaml").exists() or (pasta / "tree.json").exists()
 
 
 def escrever_gitignore(path: Path) -> bool:
@@ -219,20 +229,39 @@ def delete_workspace(wid: str, apagar_arquivos: bool = False) -> dict:
     if alvo is None:
         raise KeyError(f"workspace {wid} nao encontrado")
 
-    if reg.get("active") == wid:
-        reg["active"] = reg["workspaces"][0]["id"] if reg["workspaces"] else None
-    _write_registry(reg)
-
+    # A pasta sai antes do registro. Na ordem contraria, mover que falhava deixava o
+    # workspace fora da lista com a pasta ainda no lugar, e um workspace novo com o
+    # mesmo nome nascia em cima dos arquivos dele.
     destino = None
     if apagar_arquivos:
         origem = Path(alvo["path"])
         if origem.exists():
             lixeira = ROOT / "lixeira" / f"{wid}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
             lixeira.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(origem), str(lixeira))
+            _mover_inteiro(origem, lixeira)
             destino = lixeira
 
+    if reg.get("active") == wid:
+        reg["active"] = reg["workspaces"][0]["id"] if reg["workspaces"] else None
+    _write_registry(reg)
+
     return {"entrada": alvo, "lixeira": str(destino) if destino else None}
+
+
+def _mover_inteiro(origem: Path, destino: Path) -> None:
+    """Move a pasta de uma vez, ou nao move nada.
+
+    shutil.move cai pra copiar e apagar quando o rename falha, e no Windows o rename
+    falha justo quando tem arquivo aberto la dentro, como o indice do historico. O apagar
+    parava no primeiro arquivo preso e a pasta ficava metade na lixeira, metade no lugar.
+    Copiar e apagar so fica pra quando a lixeira esta em outro disco.
+    """
+    try:
+        origem.rename(destino)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        shutil.move(str(origem), str(destino))
 
 
 def duplicate_workspace(wid: str, nome: str) -> dict:
@@ -242,6 +271,14 @@ def duplicate_workspace(wid: str, nome: str) -> dict:
     duplica sem alguem pedir. Historico fora porque e do original, nao da copia.
     """
     origem = get_workspace(wid)
+    registrados = {w["id"] for w in _read_registry()["workspaces"]}
+    if slug(nome) not in registrados and ja_existe_no_disco(slug(nome)):
+        # create_workspace adota a pasta de um workspace tirado da lista, e a copia caia
+        # por cima do que estava la: collections dos dois misturadas na mesma pasta
+        raise ValueError(
+            f"ja existe uma pasta de workspace chamada {slug(nome)}, de um que saiu da "
+            "lista. Crie com esse nome pra trazer ele de volta, ou escolha outro nome"
+        )
     novo = create_workspace(nome)
     destino = Path(novo["path"])
 

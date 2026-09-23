@@ -431,7 +431,31 @@ class WorkspacesDialog(QDialog):
         if clicado not in (so_lista, com_arquivos):
             return
 
-        resultado = ws.delete_workspace(entrada["id"], apagar_arquivos=clicado is com_arquivos)
+        # O aberto e solto antes: o indice do historico fica aberto enquanto ele esta na
+        # tela, e no Windows pasta com arquivo aberto nao sai do lugar. Solto tambem pro
+        # caso de so tirar da lista, senao a janela seguia olhando um workspace que o
+        # registro nao conhece mais.
+        janela = self.parent()
+        if getattr(janela, "workspace_id", None) == entrada["id"] and hasattr(janela, "load_workspace"):
+            outro = next(e for e in self.entradas if e["id"] != entrada["id"])
+            janela.load_workspace(outro["id"])
+            if janela.workspace_id == entrada["id"]:
+                # a troca foi recusada pra nao perder o que o disco nao gravou, e ele segue
+                # aberto: excluir agora levava junto a unica copia dessa alteracao
+                return
+
+        try:
+            resultado = ws.delete_workspace(entrada["id"], apagar_arquivos=clicado is com_arquivos)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Excluir",
+                "A pasta nao pode ser movida agora, entao nada foi excluido.\n\n"
+                "Feche o que estiver usando algum arquivo dela, como o explorador aberto "
+                f"la dentro, e tente de novo.\n\n{exc}",
+            )
+            self.recarregar()
+            return
         if resultado["lixeira"]:
             QMessageBox.information(
                 self, "Excluido", f"A pasta foi movida para\n{resultado['lixeira']}"
