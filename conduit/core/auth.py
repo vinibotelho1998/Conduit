@@ -141,8 +141,13 @@ def aplicar(config: dict, variaveis: dict, cofre=None, rede: bool = True) -> Aut
     return saida
 
 
-def _assinatura(config: dict, url: str, client_id: str, escopo: str) -> str:
-    bruto = json.dumps([url, client_id, escopo], sort_keys=True)
+def _assinatura(config: dict, url: str, client_id: str, escopo: str, audiencia: str = "") -> str:
+    # A audience e o grant entram na chave: sem eles, trocar a audience reaproveitava o
+    # token da anterior ate expirar, e a api respondia 401 por ate uma hora.
+    bruto = json.dumps(
+        [url, client_id, escopo, audiencia, config.get("grant") or "client_credentials"],
+        sort_keys=True,
+    )
     return "oauth:" + hashlib.sha256(bruto.encode("utf-8")).hexdigest()[:24]
 
 
@@ -157,7 +162,8 @@ def token_oauth2(
     if not url or not client_id:
         return "", "OAuth2 precisa de tokenUrl e clientId", ""
 
-    chave = _assinatura(config, url, client_id, escopo)
+    audiencia = _tomar(config.get("audience"), variaveis, ledger) if config.get("audience") else ""
+    chave = _assinatura(config, url, client_id, escopo, audiencia)
 
     if cofre is not None:
         guardado = cofre.get(chave)
@@ -178,8 +184,8 @@ def token_oauth2(
         corpo["client_secret"] = client_secret
     if escopo:
         corpo["scope"] = escopo
-    if config.get("audience"):
-        corpo["audience"] = _tomar(config.get("audience"), variaveis, ledger)
+    if audiencia:
+        corpo["audience"] = audiencia
 
     try:
         with httpx.Client(timeout=30, follow_redirects=True) as cliente:

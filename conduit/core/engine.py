@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import http.cookiejar
+import re
 import time
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -16,6 +18,9 @@ from .vars import Resolved, resolve
 # Segundos pra abrir a conexao. So isso tem teto: depois de conectado o app
 # espera a resposta o tempo que ela levar.
 CONEXAO = 30.0
+
+# esquema no comeco da url, do jeito que a RFC escreve: letra, depois letra, digito, + . -
+_ESQUEMA = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 
 
 @dataclass
@@ -41,6 +46,8 @@ class Prepared:
     cookies: dict = field(default_factory=dict)
     # token do OAuth2 que ficou pra ser pedido no envio, ver completar_auth
     oauth2_pendente: dict | None = None
+    # a url veio sem http e o envio supos http://, pra tela poder avisar
+    esquema_suposto: bool = False
 
 
 def prepare(
@@ -67,7 +74,14 @@ def prepare(
         return res.text
 
     out.method = (request.get("method") or "GET").upper()
-    url = take(request.get("url") or "")
+    # Endereco copiado de documento chega com fim de linha ou espaco nas pontas, e o
+    # envio falhava com caractere nao imprimivel numa posicao que a tela nao mostrava.
+    url = re.sub(r"[\r\n\t]", "", take(request.get("url") or "")).strip()
+    # localhost:8080/api, que navegador e Postman aceitam, era recusado por nao comecar
+    # com http. Com variavel ainda sem valor fica como esta: nao da pra saber o esquema.
+    if url and "{{" not in url and not _ESQUEMA.match(url):
+        url = "http://" + url
+        out.esquema_suposto = True
 
     params = []
     for item in request.get("params") or []:
@@ -196,6 +210,46 @@ def _cookies_do_host(jar, url: str) -> dict:
         if not alvo or dominio == alvo or dominio.endswith("." + alvo):
             saida[cookie.name] = cookie.value
     return saida
+
+
+def explicar_erro(erro: str, url: str = "") -> str:
+    """Frase curta com o que fazer, pros erros de rede que mais aparecem.
+
+    O texto do httpx e do sistema, em ingles e com numero de erro do Windows, fica na
+    segunda linha da tela e no historico como veio. Esta frase so vai na frente dele.
+    Devolve vazio quando o erro nao e um dos conhecidos.
+    """
+    texto = erro or ""
+    baixo = texto.lower()
+    partes = urllib.parse.urlsplit(url or "")
+    host = partes.hostname or "o servidor"
+    try:
+        porta = partes.port or (443 if partes.scheme == "https" else 80)
+    except ValueError:
+        porta = ""
+    alvo = f"{host}:{porta}" if porta else host
+
+    if "certificate_verify_failed" in baixo or "certificate verify failed" in baixo:
+        return (
+            "o certificado do servidor nao e reconhecido. Se ele e de uma CA interna, "
+            "cadastre a CA em Executar, Certificados e CA; so pra este request, da pra "
+            "desligar a verificacao na aba Ajustes"
+        )
+    if "connecttimeout" in baixo:
+        return f"{alvo} nao atendeu a conexao a tempo. Confira o endereco, a porta e a VPN"
+    if "readtimeout" in baixo or "writetimeout" in baixo:
+        return (
+            "o servidor aceitou a conexao mas nao respondeu dentro do tempo limite, que "
+            "fica na aba Ajustes do request"
+        )
+    if any(sinal in baixo for sinal in (
+        "getaddrinfo", "11001", "name or service not known", "nodename nor servname",
+        "name resolution", "no address associated",
+    )):
+        return f"nao achei o endereco {host}. Confira a url, a variavel dela ou a VPN"
+    if any(sinal in baixo for sinal in ("10061", "connection refused", "refused")):
+        return f"nada respondendo em {alvo}. O servico esta de pe nessa porta?"
+    return ""
 
 
 def send(prepared: Prepared) -> dict:
