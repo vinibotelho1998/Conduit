@@ -243,6 +243,9 @@ QMenuBar::item {{
 }}
 QMenuBar::item:selected {{ background: {p["elevado"]}; color: {p["texto"]}; }}
 QMenuBar::item:pressed {{ background: {p["elevado"]}; color: {p["texto"]}; }}
+QLabel#versao {{
+    color: {p["texto_fraco"]}; font-size: {FONTE["miudo"]}pt; padding: 0 {e[4]}px;
+}}
 
 QMenu {{
     background: {p["flutuante"]}; border: 1px solid {p["borda_forte"]};

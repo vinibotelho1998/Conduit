@@ -166,7 +166,8 @@ def _foto(no: dict) -> str:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(APP_NAME)
+        # com a versao no titulo, a barra de tarefas ja diz qual Conduit esta aberto
+        self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.resize(1360, 860)
 
         self.pool = QThreadPool.globalInstance()
@@ -534,6 +535,18 @@ class MainWindow(QMainWindow):
         ajuda.addAction(self._action("Novidades desta versao", self.show_changelog))
         ajuda.addAction(self._action(f"Sobre o {APP_NAME}", self.show_about))
 
+        # A versao mora no canto da barra de menus, que sobra vazio depois do Ajuda ate
+        # na janela mais estreita. No rodape ela dividia a direita com ambiente e
+        # variaveis e passava batido.
+        self.versao = QLabel(f"v{__version__}")
+        self.versao.setObjectName("versao")
+        self.versao.setToolTip(f"{APP_NAME} {VERSION_LABEL}. Ajuda, Novidades mostra o que mudou.")
+        # o Qt poe o canto no alto da barra com a altura do proprio texto, entao ele
+        # ganha a altura de um menu pra ficar na mesma linha dos nomes
+        self.versao.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        self.versao.setMinimumHeight(menu.actionGeometry(menu.actions()[0]).height())
+        menu.setCornerWidget(self.versao, Qt.Corner.TopRightCorner)
+
         for numero in range(1, 10):
             atalho = QAction(self)
             atalho.setShortcut(f"Ctrl+{numero}")
@@ -600,11 +613,6 @@ class MainWindow(QMainWindow):
         self.status_right = Elastico()
         self.status_right.setObjectName("hint")
         self.statusBar().addPermanentWidget(self.status_right)
-
-        versao = QLabel(f"  v{__version__}")
-        versao.setObjectName("hint")
-        versao.setToolTip(f"{APP_NAME} {VERSION_LABEL}. Ajuda, Novidades mostra o que mudou.")
-        self.statusBar().addPermanentWidget(versao)
 
         self.statusBar().showMessage("pronto")
 

@@ -261,6 +261,49 @@ def main() -> int:
     dialogo.close()
     dialogo.deleteLater()
 
+    p.secao("versao no topo")
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QToolButton
+
+    from conduit import APP_NAME, __version__
+    from conduit.gui import main_window as mod_janela
+
+    barra = janela.menuBar()
+    canto = barra.cornerWidget(Qt.Corner.TopRightCorner)
+    p.confere("canto da barra de menus mostra a versao",
+              canto is not None and canto.text() == f"v{__version__}",
+              repr(canto.text() if canto is not None else None))
+    p.confere("titulo da janela leva a versao", janela.windowTitle() == f"{APP_NAME} {__version__}",
+              repr(janela.windowTitle()))
+    # a CI troca o numero so no __init__ e roda os testes antes da troca: numero escrito
+    # a mao na janela passaria nas duas conferencias acima e sairia velho no instalador
+    p.confere("versao da janela vem do pacote, sem numero escrito a mao",
+              __version__ not in inspect.getsource(mod_janela))
+    if canto is not None:
+        for nome, paleta in (("claro", tokens.CLARO), ("escuro", tokens.ESCURO)):
+            theme.aplicar(app, nome)
+            tinta = canto.palette().color(QPalette.ColorRole.WindowText).name()
+            p.confere(f"versao na cor apagada do {nome}", tinta == paleta["texto_fraco"].lower(), tinta)
+        # na janela mais estreita que o Qt deixa, a versao continua inteira e nao
+        # empurra menu nenhum pra seta de sobra
+        largura = janela.width()
+        janela.resize(1, janela.height())
+        app.processEvents()
+        ajuda = barra.actionGeometry(barra.actions()[-1])
+        sobra = barra.findChild(QToolButton, "qt_menubar_ext_button")
+        p.confere("janela estreita mostra a versao inteira",
+                  canto.isVisible() and canto.width() >= canto.sizeHint().width()
+                  and canto.geometry().right() < barra.width(),
+                  f"{janela.width()} {canto.geometry()}")
+        p.confere("nenhum menu vai pra seta de sobra", sobra is None or not sobra.isVisible())
+        p.confere("versao nao cobre o Ajuda", ajuda.right() < canto.geometry().left(),
+                  f"{ajuda} {canto.geometry()}")
+        p.confere("versao na mesma linha dos menus",
+                  abs(canto.geometry().center().y() - ajuda.center().y()) <= 1,
+                  f"{canto.geometry()} {ajuda}")
+        janela.resize(largura, janela.height())
+        app.processEvents()
+
     p.secao("workspace e recursos")
     sftp.gravar_perfis(janela.tree_data, [sftp.Perfil(id="p1", nome="X", host="h", usuario="u", porta=2222)])
     janela._save_now()
