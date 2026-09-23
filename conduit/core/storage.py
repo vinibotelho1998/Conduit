@@ -89,13 +89,58 @@ def _ordenar(dados: dict, ordem: list[str]) -> dict:
     return saida
 
 
-def _escrever(caminho: Path, dados: dict) -> bool:
-    """Grava so se o conteudo mudou. Devolve True quando escreveu."""
+def _legivel(texto: str) -> bool:
+    """Se o texto e um YAML que o app sabe ler, ou seja, um mapa. Vazio conta como lido."""
+    if not texto.strip():
+        return True
+    try:
+        return isinstance(yaml.safe_load(texto), dict)
+    except yaml.YAMLError:
+        return False
+
+
+def _texto_do_disco(caminho: Path) -> str | None:
+    try:
+        return caminho.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+
+
+def _guardar_ilegivel(raiz: Path, caminho: Path, resumo: dict | None) -> None:
+    """Copia pra .conduit/conflitos o arquivo que o app nao conseguiu ler.
+
+    Arquivo que nao le e arquivo que nao entrou na arvore. Um _collection.yaml com erro
+    de digitacao, ou com marca de conflito do git, era regravado no salvar seguinte com
+    o que o app tinha na memoria, e as variaveis e a auth de dentro dele iam embora sem
+    copia nenhuma.
+    """
+    try:
+        _guardar_conflito(raiz, caminho)
+    except OSError:
+        return
+    if resumo is not None:
+        relativo = caminho.relative_to(raiz).as_posix()
+        if relativo not in resumo["conflitos"]:
+            resumo["conflitos"].append(relativo)
+
+
+def _escrever(caminho: Path, dados: dict, raiz: Path | None = None, resumo: dict | None = None) -> bool:
+    """Grava so se o conteudo mudou. Devolve True quando escreveu.
+
+    Com `raiz`, o que estava no disco e nao se le como YAML vai pra .conduit/conflitos
+    antes de ser sobrescrito.
+    """
     texto = yaml.dump(
         dados, Dumper=OrdenadoDumper, sort_keys=False, allow_unicode=True, width=100
     )
-    if caminho.exists() and caminho.read_text(encoding="utf-8") == texto:
-        return False
+    if caminho.exists():
+        # lido como texto, e nao como bytes, pra comparar do mesmo jeito que sempre se
+        # comparou: o arquivo foi gravado em modo texto, com a quebra de linha do Windows
+        atual = _texto_do_disco(caminho)
+        if atual == texto:
+            return False
+        if raiz is not None and (atual is None or not _legivel(atual)):
+            _guardar_ilegivel(raiz, caminho, resumo)
     caminho.parent.mkdir(parents=True, exist_ok=True)
     temporario = caminho.with_suffix(caminho.suffix + ".tmp")
     temporario.write_text(texto, encoding="utf-8")
@@ -124,17 +169,67 @@ def _guardar_conflito(raiz: Path, caminho: Path) -> Path:
     from datetime import datetime
 
     destino = raiz / ".conduit" / "conflitos" / datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    destino.mkdir(parents=True, exist_ok=True)
-    alvo = destino / caminho.name
+    # o caminho relativo vem junto: so pelo nome, dois _folder.yaml guardados no mesmo
+    # segundo viravam um arquivo so, e a copia do primeiro se perdia
+    alvo = destino / caminho.relative_to(raiz)
+    alvo.parent.mkdir(parents=True, exist_ok=True)
     alvo.write_bytes(caminho.read_bytes())
     return alvo
 
 
 def _ler(caminho: Path) -> dict:
+    # UnicodeDecodeError e ValueError: arquivo salvo por fora em ANSI derrubava a leitura
+    # do workspace inteiro, e o app nem abria. Lista ou texto solto no lugar do mapa, idem.
     try:
-        return yaml.safe_load(caminho.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+        dados = yaml.safe_load(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError, yaml.YAMLError):
         return {}
+    return dados if isinstance(dados, dict) else {}
+
+
+def _texto(valor) -> str:
+    """O YAML le `8080` como numero e `true` como booleano, e o app so conhece texto.
+
+    Valor tipado assim so aparece quando alguem edita o arquivo na mao, e derrubava o
+    envio com TypeError na hora de trocar a variavel, alem de sumir da grade.
+    """
+    if valor is None:
+        return ""
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    return valor if isinstance(valor, str) else str(valor)
+
+
+def _ordem(valor) -> int:
+    """O `seq` do arquivo. Texto misturado com numero fazia o sort estourar TypeError."""
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return 999
+
+
+def _mapas(lista) -> list:
+    """Lista de mapas, como a de certificados e a de servidores SFTP do settings.yaml.
+
+    Escrita na mao, ela pode chegar como texto solto ou com item que nao e mapa, e o
+    primeiro .get em cima disso derrubava a abertura do workspace inteiro.
+    """
+    return [item for item in lista if isinstance(item, dict)] if isinstance(lista, list) else []
+
+
+def _pares(lista) -> list:
+    """Linhas de chave e valor, com o que o YAML tipou de volta em texto."""
+    saida = []
+    for item in lista if isinstance(lista, list) else []:
+        if not isinstance(item, dict):
+            continue
+        for campo in ("key", "value"):
+            # nulo fica nulo: quem le ja trata como vazio, e trocar faria o proximo
+            # salvar reescrever um arquivo que ninguem mexeu
+            if item.get(campo) is not None and not isinstance(item[campo], str):
+                item[campo] = _texto(item[campo])
+        saida.append(item)
+    return saida
 
 
 def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
@@ -144,14 +239,14 @@ def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
 
     tree = {
         "schemaVersion": settings.get("schemaVersion", SCHEMA_VERSION),
-        "activeEnv": settings.get("activeEnv"),
+        "activeEnv": _texto(settings.get("activeEnv")) or None,
         "sortMode": settings.get("sortMode") or "manual",
-        "certificates": settings.get("certificates") or [],
-        "caFile": settings.get("caFile") or "",
+        "certificates": _mapas(settings.get("certificates")),
+        "caFile": _texto(settings.get("caFile")),
         # so o contrato do servidor SFTP: host, porta e usuario. Senha e frase da chave
         # ficam no cofre, exatamente como o valor de variavel secreta.
-        "sftp": settings.get("sftp") or [],
-        "globals": _ler(raiz / "globals.yaml").get("values") or [],
+        "sftp": _mapas(settings.get("sftp")),
+        "globals": _pares(_ler(raiz / "globals.yaml").get("values")),
         "environments": [],
         "collections": [],
     }
@@ -163,8 +258,8 @@ def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
             dados = _ler(arquivo)
             if not dados:
                 continue
-            env_id = dados.get("id") or arquivo.stem
-            valores = dados.get("values") or []
+            env_id = _texto(dados.get("id")) or arquivo.stem
+            valores = _pares(dados.get("values"))
             # O arquivo versionado guarda so o contrato: nome da variavel e a marca de
             # secreta. O valor secreto vem do cofre, que fica fora do git.
             for item in valores:
@@ -173,9 +268,9 @@ def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
             envs.append(
                 {
                     "id": env_id,
-                    "name": dados.get("name") or arquivo.stem,
+                    "name": _texto(dados.get("name")) or arquivo.stem,
                     "values": valores,
-                    "_seq": dados.get("seq", 999),
+                    "_seq": _ordem(dados.get("seq")),
                 }
             )
         envs.sort(key=lambda e: e.pop("_seq"))
@@ -201,18 +296,17 @@ def _ler_grupo(diretorio: Path, tipo: str) -> dict | None:
         return None
 
     node = {
-        "id": dados.get("id") or diretorio.name,
+        "id": _texto(dados.get("id")) or diretorio.name,
         "type": tipo,
-        "name": dados.get("name") or diretorio.name,
+        "name": _texto(dados.get("name")) or diretorio.name,
         "expanded": bool(dados.get("expanded")),
-        "variables": dados.get("variables") or [],
+        "variables": _pares(dados.get("variables")),
         "items": [],
-        "_seq": dados.get("seq", 999),
+        "_seq": _ordem(dados.get("seq")),
     }
-    if dados.get("auth"):
-        node["auth"] = dados["auth"]
-    if dados.get("origin"):
-        node["origin"] = dados["origin"]
+    for extra in ("auth", "origin"):
+        if dados.get(extra) and isinstance(dados[extra], dict):
+            node[extra] = dados[extra]
 
     filhos = []
     for caminho in sorted(diretorio.iterdir()):
@@ -234,21 +328,36 @@ def _ler_request(caminho: Path) -> dict | None:
     dados = _ler(caminho)
     if not dados:
         return None
+    corpo = dados.get("body")
+    if isinstance(corpo, dict):
+        corpo = dict(corpo)
+        for campo in ("mode", "raw"):
+            if corpo.get(campo) is not None and not isinstance(corpo[campo], str):
+                corpo[campo] = _texto(corpo[campo])
+    elif corpo:
+        corpo = {"mode": "raw", "raw": _texto(corpo)}
+    else:
+        corpo = {"mode": "none", "raw": ""}
     node = {
-        "id": dados.get("id") or caminho.stem,
+        "id": _texto(dados.get("id")) or caminho.stem,
         "type": "request",
-        "name": dados.get("name") or caminho.stem,
-        "method": dados.get("method") or "GET",
-        "url": dados.get("url") or "",
-        "params": dados.get("params") or [],
-        "headers": dados.get("headers") or [],
-        "body": dados.get("body") or {"mode": "none", "raw": ""},
-        "docs": dados.get("docs") or "",
-        "_seq": dados.get("seq", 999),
+        "name": _texto(dados.get("name")) or caminho.stem,
+        "method": _texto(dados.get("method")) or "GET",
+        "url": _texto(dados.get("url")),
+        "params": _pares(dados.get("params")),
+        "headers": _pares(dados.get("headers")),
+        "body": corpo,
+        "docs": _texto(dados.get("docs")),
+        "_seq": _ordem(dados.get("seq")),
     }
-    for extra in ("favorite", "auth", "settings", "examples", "origin"):
-        if dados.get(extra):
+    # Cada extra so entra com o tipo que o app sabe ler. Uma auth escrita como texto na
+    # mao derrubava a abertura da aba, porque a heranca faz auth.get em cima dela.
+    for extra, tipo in (("favorite", object), ("auth", dict), ("settings", dict),
+                        ("examples", list), ("origin", dict)):
+        if dados.get(extra) and isinstance(dados[extra], tipo):
             node[extra] = dados[extra]
+    if "examples" in node:
+        node["examples"] = [e for e in node["examples"] if isinstance(e, dict)]
     return node
 
 
@@ -288,12 +397,16 @@ def gravar_workspace(
             "caFile": tree.get("caFile") or "",
             "sftp": tree.get("sftp") or [],
         },
+        raiz,
+        resumo,
     ):
         resumo["escritos"] += 1
     vivos.add(caminho)
 
     caminho = raiz / "globals.yaml"
-    if _escrever(caminho, {"schemaVersion": SCHEMA_VERSION, "values": tree.get("globals") or []}):
+    if _escrever(
+        caminho, {"schemaVersion": SCHEMA_VERSION, "values": tree.get("globals") or []}, raiz, resumo
+    ):
         resumo["escritos"] += 1
     vivos.add(caminho)
 
@@ -301,6 +414,7 @@ def gravar_workspace(
     pasta_envs.mkdir(exist_ok=True)
     usados: set[str] = set()
     segredos: dict[str, str] = {}
+    arquivos_env: list[tuple[Path, dict]] = []
 
     for indice, env in enumerate(tree.get("environments") or []):
         nome = slug(env.get("name") or env.get("id") or "ambiente", usados)
@@ -327,15 +441,26 @@ def gravar_workspace(
             },
             ORDEM_ENV,
         )
-        if _escrever(caminho, dados):
-            resumo["escritos"] += 1
-        vivos.add(caminho)
+        arquivos_env.append((caminho, dados))
 
+    # O cofre vai antes dos arquivos. Com o cofre falhando, regravar o ambiente com o
+    # valor secreto em branco apagava o unico lugar onde ele ainda existia: e o caso de
+    # quem ainda tinha segredo em texto puro no YAML, recolhido na primeira leitura.
+    cofre_ok = True
     if segredos:
         try:
             resumo["segredos"] = cofre.set_muitos(segredos)
         except Exception as exc:  # noqa: BLE001
             resumo["erro_cofre"] = f"{type(exc).__name__}: {exc}"
+            cofre_ok = False
+
+    if cofre_ok:
+        for caminho, dados in arquivos_env:
+            if _escrever(caminho, dados, raiz, resumo):
+                resumo["escritos"] += 1
+            vivos.add(caminho)
+    else:
+        vivos.update(pasta_envs.glob("*.yaml"))
 
     pasta_cols = raiz / "collections"
     pasta_cols.mkdir(exist_ok=True)
@@ -343,7 +468,7 @@ def gravar_workspace(
     diretorios_vivos: set[Path] = set()
     for indice, colecao in enumerate(tree.get("collections") or []):
         destino = pasta_cols / slug(colecao.get("name") or "collection", usados)
-        _gravar_grupo(destino, colecao, indice, "collection", vivos, diretorios_vivos, resumo)
+        _gravar_grupo(destino, colecao, indice, "collection", vivos, diretorios_vivos, resumo, raiz)
 
     # Limpeza do que nao pertence mais a arvore. So mexe dentro de collections e de
     # environments: settings.yaml, globals.yaml e qualquer outra coisa na raiz do
@@ -354,6 +479,12 @@ def gravar_workspace(
         dentro_de_collections = pasta_cols in caminho.parents
         dentro_de_environments = caminho.parent == pasta_envs
         if dentro_de_collections or dentro_de_environments:
+            # O que nao se le nunca entrou na arvore, entao nao foi voce que tirou de la.
+            # Fica onde esta, esperando o conserto: e o estado normal de quem edita o YAML
+            # por fora com salvamento automatico, ou de um merge do git com conflito.
+            texto = _texto_do_disco(caminho)
+            if texto is None or not _legivel(texto):
+                continue
             caminho.unlink(missing_ok=True)
             resumo["apagados"] += 1
 
@@ -376,7 +507,9 @@ def gravar_workspace(
     return resumo
 
 
-def _gravar_grupo(destino: Path, node: dict, seq: int, tipo: str, vivos, diretorios, resumo) -> None:
+def _gravar_grupo(
+    destino: Path, node: dict, seq: int, tipo: str, vivos, diretorios, resumo, raiz: Path | None = None
+) -> None:
     destino.mkdir(parents=True, exist_ok=True)
     diretorios.add(destino)
 
@@ -394,7 +527,7 @@ def _gravar_grupo(destino: Path, node: dict, seq: int, tipo: str, vivos, diretor
         },
         ORDEM_GRUPO,
     )
-    if _escrever(arquivo, dados):
+    if _escrever(arquivo, dados, raiz, resumo):
         resumo["escritos"] += 1
     vivos.add(arquivo)
 
@@ -423,8 +556,8 @@ def _gravar_grupo(destino: Path, node: dict, seq: int, tipo: str, vivos, diretor
                 },
                 ORDEM_REQUEST,
             )
-            if _escrever(caminho, corpo):
+            if _escrever(caminho, corpo, raiz, resumo):
                 resumo["escritos"] += 1
             vivos.add(caminho)
         else:
-            _gravar_grupo(destino / nome, filho, indice, "folder", vivos, diretorios, resumo)
+            _gravar_grupo(destino / nome, filho, indice, "folder", vivos, diretorios, resumo, raiz)

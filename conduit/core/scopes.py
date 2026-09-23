@@ -48,14 +48,27 @@ class VarInfo:
         return f"{self.value[:3]}***{self.value[-2:]}"
 
 
+def _texto(valor) -> str:
+    """Valor que chegou como numero ou booleano, de import ou de YAML editado na mao.
+
+    O resolvedor e o cartao do mouse so sabem lidar com texto, e um 8080 cru derrubava o
+    envio com TypeError na hora de trocar a variavel.
+    """
+    if valor is None:
+        return ""
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    return valor if isinstance(valor, str) else str(valor)
+
+
 def _collect(pairs, scope: str, origin: str, into: dict, order: list) -> None:
     for item in pairs or []:
-        key = (item.get("key") or "").strip()
+        key = _texto(item.get("key")).strip()
         if not key or item.get("enabled") is False:
             continue
         info = VarInfo(
             name=key,
-            value=item.get("value") or "",
+            value=_texto(item.get("value")),
             secret=bool(item.get("secret")),
             scope=scope,
             origin=origin,
