@@ -86,6 +86,8 @@ class VarPopup(QFrame):
         self._sumir.timeout.connect(self.hide)
 
         self.valor = QLabel("")
+        # valor de variavel pode ter vindo de arquivo importado, ver widgets.dica_de_fora
+        self.valor.setTextFormat(Qt.TextFormat.PlainText)
         self.valor.setFont(mono(9))
         self.valor.setWordWrap(True)
         self.valor.setObjectName("varValor")
@@ -93,6 +95,7 @@ class VarPopup(QFrame):
         dentro.addWidget(self.valor)
 
         self.nota = QLabel("")
+        self.nota.setTextFormat(Qt.TextFormat.PlainText)
         self.nota.setWordWrap(True)
         theme.estilizar(self.nota, lambda: f"color: {theme.FAINT}; font-size: 8pt;")
         dentro.addWidget(self.nota)

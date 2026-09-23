@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QPainter,
     QGuiApplication,
+    QImage,
     QKeySequence,
     QPixmap,
     QShortcut,
@@ -41,7 +42,7 @@ from . import icons, theme, tokens
 from .highlight import CodeHighlighter, guess_language
 from .numeros import EditorNumerado
 from .request_editor import mono
-from .widgets import BadgeTabs, cabecalho_a_esquerda, so_a_pagina_aberta
+from .widgets import BadgeTabs, cabecalho_a_esquerda, dica_de_fora, so_a_pagina_aberta
 
 
 def human_bytes(n: int | None) -> str:
@@ -111,10 +112,13 @@ class Elastico(QLabel):
         self._modo = modo
         self._cheio = ""
         self.setMinimumWidth(1)
+        # o que passa aqui vem do servidor, e texto com cara de tag viraria HTML, ver
+        # widgets.dica_de_fora
+        self.setTextFormat(Qt.TextFormat.PlainText)
 
     def setText(self, texto: str) -> None:  # noqa: N802
         self._cheio = texto or ""
-        self.setToolTip(self._cheio)
+        self.setToolTip(dica_de_fora(self._cheio))
         self._encaixar()
         self.updateGeometry()
 
@@ -149,6 +153,9 @@ class Pill(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # A frase do status e do servidor. Lida como HTML, um "200 <img src=...>" fazia o
+        # Windows abrir um caminho de rede so de a resposta chegar, sem clique nenhum.
+        self.setTextFormat(Qt.TextFormat.PlainText)
         self.hide()
 
     def set_status(self, texto: str, status, ok: bool) -> None:
@@ -325,6 +332,30 @@ class BodyView(QWidget):
         self.contador.setText(f"{self._atual + 1} de {len(self._ocorrencias)}")
 
 
+class Previa(QTextBrowser):
+    """Previa do HTML da resposta, sem buscar nada que o HTML aponte.
+
+    O QTextBrowser de fabrica le do disco toda imagem com caminho de arquivo. Numa
+    resposta de terceiro, um <img src="file://maquina/pasta/x.png"> fazia o Windows
+    abrir esse caminho de rede e entregar a credencial da conta a quem montou a pagina.
+    Previa e pra ler o texto; imagem de verdade aparece na aba Imagem, pelo corpo.
+    """
+
+    def loadResource(self, tipo, nome):  # noqa: N802
+        if nome.scheme().lower() == "data":
+            # A imagem embutida no proprio HTML nao sai da resposta, e o documento
+            # decodifica o data: sozinho antes de pensar em arquivo. Barrada junto com o
+            # resto, a previa perdia o logo e o grafico que a pagina ja trazia dentro.
+            return None
+        # Imagem volta como um ponto transparente e o resto volta vazio. None ou imagem
+        # vazia nao servem: com eles o proprio Qt tenta abrir o arquivo pelo nome.
+        if getattr(tipo, "value", tipo) == QTextDocument.ResourceType.ImageResource.value:
+            ponto = QImage(1, 1, QImage.Format.Format_ARGB32)
+            ponto.fill(Qt.GlobalColor.transparent)
+            return ponto
+        return QByteArray()
+
+
 def tabela_pares(rows, cor_chave: str = theme.ACCENT, largura: int = 280) -> QTableWidget:
     tabela = QTableWidget(len(rows or []), 2)
     tabela.setHorizontalHeaderLabels(["Nome", "Valor"])
@@ -342,7 +373,7 @@ def tabela_pares(rows, cor_chave: str = theme.ACCENT, largura: int = 280) -> QTa
         chave.setFont(mono(9))
         valor = QTableWidgetItem(str(par[1]))
         valor.setFont(mono(9))
-        valor.setToolTip(str(par[1]))
+        valor.setToolTip(dica_de_fora(str(par[1])))
         tabela.setItem(indice, 0, chave)
         tabela.setItem(indice, 1, valor)
         tabela.setRowHeight(indice, theme.medida("linha_tabela"))
@@ -568,7 +599,7 @@ class ResponseView(QWidget):
                 miudos.append(atraso)
         self.metricas.setText("   ·   ".join(p for p in pedacos if p))
         if miudos:
-            self.metricas.setToolTip("\n".join(miudos))
+            self.metricas.setToolTip(dica_de_fora("\n".join(miudos)))
 
         final = data.get("url") or (sent or {}).get("url") or ""
         self.url_final.setText(final)
@@ -615,7 +646,7 @@ class ResponseView(QWidget):
                 self._trocar(self.preview_box, rotulo)
                 return
         if eh_html:
-            navegador = QTextBrowser()
+            navegador = Previa()
             navegador.setOpenExternalLinks(False)
             navegador.setFrameShape(QFrame.Shape.NoFrame)
             navegador.setHtml(corpo)

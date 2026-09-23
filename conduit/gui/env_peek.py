@@ -40,7 +40,7 @@ from . import icons
 from . import theme
 from . import highlight
 from .request_editor import mono
-from .widgets import cabecalho_a_esquerda
+from .widgets import cabecalho_a_esquerda, dica_de_fora
 
 PAPEL_VALOR = Qt.ItemDataRole.UserRole + 1
 PAPEL_SECRETO = Qt.ItemDataRole.UserRole + 2
@@ -334,7 +334,7 @@ class EnvPeek(QFrame):
         anterior = self._carregando
         self._carregando = True
         item.setText(mostrado)
-        item.setToolTip(mostrado)
+        item.setToolTip(dica_de_fora(mostrado))
         item.setForeground(QColor(cor))
         self._carregando = anterior
 

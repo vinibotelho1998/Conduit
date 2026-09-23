@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from . import theme
 from .icons import ABREVIACAO
 from .tree_delegate import pintar_pilula
+from .widgets import dica_de_fora
 
 PAPEL = Qt.ItemDataRole.UserRole
 PAPEL_DADOS = Qt.ItemDataRole.UserRole + 1
@@ -173,7 +174,7 @@ class FavoritesPanel(QWidget):
                     "metodo": (node.get("method") or "GET").upper(),
                 },
             )
-            item.setToolTip(f"{caminho}\n{node.get('url') or ''}")
+            item.setToolTip(dica_de_fora(f"{caminho}\n{node.get('url') or ''}"))
             self.lista.addItem(item)
 
         tem = bool(favoritos)

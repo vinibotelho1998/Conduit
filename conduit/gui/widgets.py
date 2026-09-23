@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import Qt as QtTexto
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -135,6 +136,8 @@ class Faixa(QWidget):
         layout.addWidget(self.bolinha)
 
         self.texto = QLabel("")
+        # o aviso repete nome de request de arquivo importado, ver dica_de_fora
+        self.texto.setTextFormat(Qt.TextFormat.PlainText)
         self.texto.setStyleSheet("font-size: 8pt;")
         layout.addWidget(self.texto, 1)
 
@@ -195,6 +198,17 @@ def cabecalho_a_esquerda(tabela) -> None:
     tabela.horizontalHeader().setDefaultAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
     )
+
+
+def dica_de_fora(texto: str) -> str:
+    """Tooltip pra texto que veio de fora, como header e status mandados pelo servidor.
+
+    O Qt le como HTML todo texto que parece comecar com tag, e um <img> apontando pra
+    file://maquina/pasta faz o Windows abrir esse caminho de rede e mandar junto a
+    credencial da conta. Convertido aqui, o texto aparece como veio e nada e carregado.
+    """
+    texto = str(texto or "")
+    return QtTexto.convertFromPlainText(texto) if QtTexto.mightBeRichText(texto) else texto
 
 
 def so_a_pagina_aberta(tabs: QTabWidget) -> None:

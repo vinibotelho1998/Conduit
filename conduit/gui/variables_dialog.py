@@ -27,7 +27,7 @@ from . import theme
 from .kvtable import KvTable
 from . import highlight
 from .request_editor import mono
-from .widgets import cabecalho_a_esquerda
+from .widgets import cabecalho_a_esquerda, dica_de_fora
 
 
 class ScopePage(QWidget):
@@ -334,7 +334,7 @@ class VariablesDialog(QDialog):
                 item_valor.setForeground(QColor(theme.WARN))
             elif info.secret:
                 item_valor.setForeground(QColor("#c084fc"))
-            item_valor.setToolTip(mostrado)
+            item_valor.setToolTip(dica_de_fora(mostrado))
             self.tabela_efetivo.setItem(indice, 1, item_valor)
 
             origem = f"{scopes.SCOPE_LABEL.get(info.scope, info.scope)}  {info.origin}".strip()

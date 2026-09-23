@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QPen
@@ -32,7 +33,7 @@ from .highlight import CodeHighlighter
 from .request_editor import mono
 from .response_view import human_bytes
 from .numeros import EditorNumerado
-from .widgets import cabecalho_a_esquerda
+from .widgets import cabecalho_a_esquerda, dica_de_fora
 
 PERIODOS = [("hoje", 1), ("7 dias", 7), ("30 dias", 30), ("tudo", 0)]
 STATUS_FILTROS = [
@@ -270,7 +271,7 @@ class HistoryPanel(QWidget):
                     "resto": "   ".join(partes),
                 },
             )
-            linha.setToolTip(detalhe)
+            linha.setToolTip(dica_de_fora(detalhe))
             self.table.setItem(index, 1, linha)
             self.table.setRowHeight(index, LinhaHistorico.altura())
 
@@ -340,15 +341,20 @@ class HistoryPanel(QWidget):
 
 
 def to_curl(entry: dict) -> str:
-    """Comando equivalente, com segredo ainda como {{nome}}."""
+    """Comando equivalente, com segredo ainda como {{nome}}.
+
+    Pelo mesmo gerador do resto do app, com aspa simples. Entre aspas duplas o terminal
+    expandia o que viesse no corpo: um $HOME ou uma crase dentro do JSON gravado saiam
+    trocados, e a execucao reproduzida nao era a mesma.
+    """
+    from ..core import codegen
+
     request = entry.get("request") or {}
-    parts = [f"curl -X {request.get('method', 'GET')} \"{request.get('url', '')}\""]
-    for key, value in request.get("headers") or []:
-        parts.append(f'  -H "{key}: {value}"')
-    if request.get("body"):
-        body = request["body"].replace('"', '\\"')
-        parts.append(f'  -d "{body}"')
-    return " \\\n".join(parts)
+    headers = {str(par[0]): str(par[1]) for par in request.get("headers") or []}
+    return codegen.generate(
+        "curl", request.get("method") or "GET", request.get("url") or "", headers,
+        request.get("body") or None,
+    )
 
 
 class HistoryDetail(QDialog):
@@ -373,7 +379,11 @@ class HistoryDetail(QDialog):
         head_layout.setContentsMargins(14, 10, 14, 10)
         head_layout.setSpacing(4)
 
+        # Frase de status, trace e erro vem do servidor. Lidos como HTML, um <img> la dentro
+        # fazia o Windows abrir o caminho de rede apontado so de abrir o detalhe, ver
+        # widgets.dica_de_fora. Por isso texto puro, e o que entra no HTML vai escapado.
         linha = QLabel(f"{request.get('method', '')}  {request.get('url', '')}")
+        linha.setTextFormat(Qt.TextFormat.PlainText)
         linha.setFont(mono(9))
         linha.setWordWrap(True)
         head_layout.addWidget(linha)
@@ -381,20 +391,22 @@ class HistoryDetail(QDialog):
         cor = status_color(response.get("status"), bool(response.get("ok")))
         resumo = QLabel(
             f"<span style='color:{cor};font-weight:700'>"
-            f"{response.get('status') or 'falhou'} {response.get('reason') or ''}</span>"
-            f" &nbsp;·&nbsp; {response.get('elapsedMs', 0)} ms"
+            f"{escape(str(response.get('status') or 'falhou'))} {escape(str(response.get('reason') or ''))}</span>"
+            f" &nbsp;·&nbsp; {escape(str(response.get('elapsedMs', 0)))} ms"
             f" &nbsp;·&nbsp; {human_bytes(response.get('sizeBytes'))}"
-            f" &nbsp;·&nbsp; {entry.get('ts', '')}"
-            f" &nbsp;·&nbsp; ambiente {entry.get('env') or 'nenhum'}"
+            f" &nbsp;·&nbsp; {escape(str(entry.get('ts', '')))}"
+            f" &nbsp;·&nbsp; ambiente {escape(str(entry.get('env') or 'nenhum'))}"
         )
         head_layout.addWidget(resumo)
 
         caminho = QLabel(f"{entry.get('requestPath') or ''}   id {entry.get('id')}")
+        caminho.setTextFormat(Qt.TextFormat.PlainText)
         caminho.setObjectName("hint")
         head_layout.addWidget(caminho)
 
         if entry.get("trace"):
             trace = QLabel("   ".join(f"{k}: {v}" for k, v in entry["trace"].items()))
+            trace.setTextFormat(Qt.TextFormat.PlainText)
             trace.setObjectName("hint")
             trace.setWordWrap(True)
             trace.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -402,6 +414,7 @@ class HistoryDetail(QDialog):
 
         if response.get("error"):
             erro = QLabel(response["error"])
+            erro.setTextFormat(Qt.TextFormat.PlainText)
             theme.estilizar(erro, lambda: f"color: {theme.ERR};")
             erro.setWordWrap(True)
             head_layout.addWidget(erro)
