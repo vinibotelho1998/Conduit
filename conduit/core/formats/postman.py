@@ -20,8 +20,10 @@ def detectar(caminho: Path) -> float:
     if caminho.is_dir() or caminho.suffix.lower() != ".json":
         return 0.0
     try:
-        dados = json.loads(caminho.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        # utf-8-sig em todo conversor: json salvo pelo Bloco de Notas vem com BOM, o
+        # json.loads recusa, e o arquivo aparecia como formato desconhecido
+        dados = json.loads(caminho.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
         return 0.0
     if isinstance(dados, dict):
         if "collection/v2" in str((dados.get("info") or {}).get("schema") or ""):
@@ -32,6 +34,19 @@ def detectar(caminho: Path) -> float:
         if "values" in dados and dados.get("_postman_variable_scope"):
             return 0.9
     return 0.0
+
+
+def _texto(valor) -> str:
+    """Valor de variavel como o app guarda, em texto.
+
+    Variavel gravada por script no Postman sai no arquivo como numero ou booleano. Com
+    `or ""` na frente, o 0 virava vazio e o true virava True.
+    """
+    if valor is None:
+        return ""
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    return str(valor)
 
 
 def _url_de(bruto) -> tuple[str, list]:
@@ -200,7 +215,7 @@ def _item(bruto: dict, avisos: list) -> dict | None:
 def importar(caminho: Path) -> Resultado:
     resultado = Resultado(formato="Postman")
     try:
-        dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
+        dados = json.loads(Path(caminho).read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
         resultado.erro = f"nao consegui ler o arquivo: {exc}"
         return resultado
@@ -213,8 +228,10 @@ def importar(caminho: Path) -> Resultado:
                 "name": dados.get("name") or Path(caminho).stem,
                 "values": [
                     {
-                        "key": item.get("key") or "",
-                        "value": item.get("value") or "",
+                        "key": str(item.get("key") or ""),
+                        # como nas variaveis da collection: numero cru no lugar de texto
+                        # sumia da grade e derrubava o envio
+                        "value": _texto(item.get("value")),
                         "enabled": item.get("enabled", True),
                         "secret": item.get("type") == "secret",
                     }
@@ -234,7 +251,7 @@ def importar(caminho: Path) -> Resultado:
         "variables": [
             {
                 "key": v.get("key") or "",
-                "value": str(v.get("value") or ""),
+                "value": _texto(v.get("value")),
                 "enabled": not v.get("disabled"),
             }
             for v in dados.get("variable") or []

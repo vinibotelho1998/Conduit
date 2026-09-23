@@ -42,6 +42,21 @@ def detectar(caminho: str | Path) -> list[tuple[str, float]]:
     return notas
 
 
+def _rodar(modulo, caminho: Path) -> Resultado:
+    """Arquivo torto vira erro legivel na tela de importar.
+
+    Cada conversor pega o erro que conhece, mas um recurso do Insomnia sem _id ou um
+    arquivo que nao e UTF-8 escapavam como KeyError e UnicodeDecodeError, e a tela de
+    importar caia no tratador de tombo em vez de dizer o que houve com o arquivo.
+    """
+    try:
+        return modulo.importar(caminho)
+    except Exception as exc:  # noqa: BLE001
+        saida = Resultado()
+        saida.erro = f"nao consegui ler o arquivo: {type(exc).__name__}: {exc}"
+        return saida
+
+
 def importar(caminho: str | Path, formato: str | None = None) -> Resultado:
     caminho = Path(caminho)
     if not caminho.exists():
@@ -55,7 +70,7 @@ def importar(caminho: str | Path, formato: str | None = None) -> Resultado:
             saida = Resultado()
             saida.erro = f"formato {formato} nao suportado"
             return saida
-        return modulo.importar(caminho)
+        return _rodar(modulo, caminho)
 
     possiveis = detectar(caminho)
     if not possiveis:
@@ -66,7 +81,7 @@ def importar(caminho: str | Path, formato: str | None = None) -> Resultado:
         return saida
 
     nome = possiveis[0][0]
-    resultado = dict(CONVERSORES)[nome].importar(caminho)
+    resultado = _rodar(dict(CONVERSORES)[nome], caminho)
     if len(possiveis) > 1:
         outros = ", ".join(f"{n} {int(v * 100)}%" for n, v in possiveis[1:])
         resultado.avisos.append(f"o arquivo tambem parecia {outros}, escolhi {nome}")
@@ -117,14 +132,19 @@ def exportar(tree: dict, colecoes: list, formato: str, destino: str | Path, com_
         destino.mkdir(parents=True, exist_ok=True)
         from .storage import slug
 
+        # nomes que dao o mesmo slug, como "Pagamentos v1" e "Pagamentos (v1)", gravavam
+        # no mesmo arquivo, e so a ultima collection sobrava na pasta exportada
+        usados: set[str] = set()
         for colecao in colecoes:
             postman.exportar_collection(
-                colecao, destino / f"{slug(colecao.get('name') or 'collection')}.postman_collection.json"
+                colecao,
+                destino / f"{slug(colecao.get('name') or 'collection', usados)}.postman_collection.json",
             )
+        usados = set()
         for env in tree.get("environments") or []:
             postman.exportar_environment(
                 env,
-                destino / f"{slug(env.get('name') or 'ambiente')}.postman_environment.json",
+                destino / f"{slug(env.get('name') or 'ambiente', usados)}.postman_environment.json",
                 com_segredo,
             )
         return destino

@@ -27,6 +27,7 @@ mesma, {{nome}}.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from ..workspaces import new_id
@@ -91,9 +92,23 @@ def _dicionario(conteudo: str) -> dict:
     return {chave: valor for chave, valor, _ in _pares(conteudo)}
 
 
+def _segredos(texto: str) -> list[str]:
+    """Nomes do `vars:secret [ a, b ]` do ambiente.
+
+    E o unico bloco do formato com colchete, e nao chave, e so tem nome, sem valor. Lido
+    pelo _blocos, que procura chave, ele nunca aparecia, e toda variavel secreta do
+    ambiente sumia no import, a mesma que o proprio export daqui escreve assim.
+    """
+    achado = re.search(r"vars:secret\s*\[(.*?)\]", texto, re.S)
+    if not achado:
+        return []
+    nomes = (pedaco.strip().lstrip("~").strip() for pedaco in re.split(r"[,\n]", achado.group(1)))
+    return [nome for nome in nomes if nome]
+
+
 def ler_bru(caminho: Path, avisos: list) -> dict | None:
     try:
-        texto = Path(caminho).read_text(encoding="utf-8")
+        texto = Path(caminho).read_text(encoding="utf-8-sig")
     except OSError:
         return None
 
@@ -192,7 +207,7 @@ def _pasta(caminho: Path, avisos: list, ignorar: set | None = None) -> dict:
     }
     meta = caminho / "folder.bru"
     if meta.exists():
-        dados = _dicionario({c: v for c, v in _blocos(meta.read_text(encoding="utf-8"))}.get("meta", ""))
+        dados = _dicionario({c: v for c, v in _blocos(meta.read_text(encoding="utf-8-sig"))}.get("meta", ""))
         node["name"] = dados.get("name") or caminho.name
 
     ignorar = ignorar or set()
@@ -237,7 +252,7 @@ def importar(caminho: Path) -> Resultado:
     config = caminho / "bruno.json"
     if config.exists():
         try:
-            nome = json.loads(config.read_text(encoding="utf-8")).get("name") or nome
+            nome = json.loads(config.read_text(encoding="utf-8-sig")).get("name") or nome
         except json.JSONDecodeError:
             pass
 
@@ -255,12 +270,13 @@ def importar(caminho: Path) -> Resultado:
     pasta_envs = caminho / "environments"
     if pasta_envs.is_dir():
         for arquivo in sorted(pasta_envs.glob("*.bru")):
-            blocos = {c: v for c, v in _blocos(arquivo.read_text(encoding="utf-8"))}
+            texto = arquivo.read_text(encoding="utf-8-sig")
+            blocos = {c: v for c, v in _blocos(texto)}
             valores = [
                 {"key": chave, "value": valor, "enabled": ativo}
                 for chave, valor, ativo in _pares(blocos.get("vars", ""))
             ]
-            for chave, _, _ in _pares(blocos.get("vars:secret", "")):
+            for chave in _segredos(texto):
                 valores.append({"key": chave, "value": "", "enabled": True, "secret": True})
             resultado.environments.append(
                 {"id": new_id("env"), "name": arquivo.stem, "values": valores}
@@ -375,13 +391,17 @@ def exportar(tree: dict, colecoes: list, destino: Path, com_segredo: bool = Fals
     if len(colecoes) == 1:
         andar(colecoes[0].get("items"), destino)
     else:
+        # slug repetido juntava duas collections na mesma pasta, e o request de mesmo
+        # nome de uma sobrescrevia o da outra
+        pastas: set[str] = set()
         for colecao in colecoes:
-            andar(colecao.get("items"), destino / slug(colecao.get("name") or "collection"))
+            andar(colecao.get("items"), destino / slug(colecao.get("name") or "collection", pastas))
 
     envs = tree.get("environments") or []
     if envs:
         pasta_envs = destino / "environments"
         pasta_envs.mkdir(exist_ok=True)
+        nomes_env: set[str] = set()
         for env in envs:
             publicas = [v for v in env.get("values") or [] if v.get("key") and not v.get("secret")]
             secretas = [v for v in env.get("values") or [] if v.get("key") and v.get("secret")]
@@ -395,7 +415,7 @@ def exportar(tree: dict, colecoes: list, destino: Path, com_segredo: bool = Fals
                 for v in secretas:
                     linhas.append(f"  {v['key']},")
                 linhas.append("]")
-            (pasta_envs / f"{slug(env.get('name') or 'ambiente')}.bru").write_text(
+            (pasta_envs / f"{slug(env.get('name') or 'ambiente', nomes_env)}.bru").write_text(
                 "\n".join(linhas) + "\n", encoding="utf-8"
             )
 

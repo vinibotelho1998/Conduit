@@ -26,7 +26,7 @@ METODOS = ("get", "post", "put", "patch", "delete", "head", "options")
 
 
 def _carregar(caminho: Path):
-    texto = Path(caminho).read_text(encoding="utf-8")
+    texto = Path(caminho).read_text(encoding="utf-8-sig")
     try:
         return json.loads(texto)
     except json.JSONDecodeError:
@@ -40,7 +40,7 @@ def detectar(caminho: Path) -> float:
     if caminho.is_dir() or caminho.suffix.lower() not in (".json", ".yaml", ".yml"):
         return 0.0
     try:
-        texto = caminho.read_text(encoding="utf-8")
+        texto = caminho.read_text(encoding="utf-8-sig")
     except OSError:
         return 0.0
     if not re.search(r'["\']?(openapi|swagger)["\']?\s*:', texto[:4000]):

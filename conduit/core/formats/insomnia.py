@@ -21,7 +21,7 @@ def detectar(caminho: Path) -> float:
     if caminho.is_dir() or caminho.suffix.lower() not in (".json", ".yaml", ".yml"):
         return 0.0
     try:
-        texto = caminho.read_text(encoding="utf-8")
+        texto = caminho.read_text(encoding="utf-8-sig")
     except OSError:
         return 0.0
     if "__export_format" not in texto:
@@ -41,7 +41,7 @@ def detectar(caminho: Path) -> float:
 
 
 def _carregar(caminho: Path):
-    texto = Path(caminho).read_text(encoding="utf-8")
+    texto = Path(caminho).read_text(encoding="utf-8-sig")
     try:
         return json.loads(texto)
     except json.JSONDecodeError:
