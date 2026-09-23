@@ -60,6 +60,10 @@ MASK_KEYS = {
 MAX_REQ_BODY = 64 * 1024
 MAX_RESP_BODY = 256 * 1024
 
+# Quanto tempo o corpo fica no log e quanto o resumo fica no indice, ver purge
+DIAS_CORPO = 7
+DIAS_RESUMO = 90
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entries (
     id           TEXT PRIMARY KEY,
@@ -304,6 +308,15 @@ class History:
         except (json.JSONDecodeError, UnicodeDecodeError):
             return None
 
+    def resumo(self, entry_id: str) -> dict | None:
+        """O que o indice sabe da execucao, mesmo depois do corpo ter sido expurgado."""
+        row = self.conn.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
+        return dict(row) if row else None
+
+    def dias_com_corpo(self) -> set[str]:
+        """Os dias que ainda tem log no disco. Fora deles, sobrou so o resumo."""
+        return {caminho.stem for caminho in self.dir.glob("*.jsonl")}
+
     def uso_por_request(self) -> dict:
         """Quantas vezes e quando cada request rodou, pra ordenar a arvore por uso.
 
@@ -334,7 +347,7 @@ class History:
         }
 
 
-    def purge(self, body_days: int = 7, meta_days: int = 90) -> dict:
+    def purge(self, body_days: int = DIAS_CORPO, meta_days: int = DIAS_RESUMO) -> dict:
         """Corpo some rapido, metadado fica mais tempo."""
         removed_files = 0
         limit_day = (datetime.now() - timedelta(days=body_days)).strftime("%Y-%m-%d")
@@ -355,8 +368,46 @@ class History:
         self.conn.commit()
 
     def delete(self, entry_id: str) -> None:
+        """Tira do indice e do log. So do indice, a execucao voltava no Reconstruir."""
+        row = self.conn.execute("SELECT day FROM entries WHERE id = ?", (entry_id,)).fetchone()
         self.conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+        if row:
+            self._tirar_do_log(row["day"], entry_id)
         self.conn.commit()
+
+    def _tirar_do_log(self, day: str, entry_id: str) -> None:
+        """Reescreve o log do dia sem a linha, por temporario e troca como o resto do app.
+
+        As linhas que ficam andam de lugar no arquivo, entao o offset de cada uma no
+        indice e refeito junto.
+        """
+        caminho = self.dir / f"{day}.jsonl"
+        if not caminho.exists():
+            return
+        linhas = caminho.read_bytes().splitlines(keepends=True)
+
+        def id_da(linha: bytes):
+            try:
+                entrada = json.loads(linha.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return None
+            return entrada.get("id") if isinstance(entrada, dict) else None
+
+        ficam = [linha for linha in linhas if id_da(linha) != entry_id]
+        if len(ficam) == len(linhas):
+            return
+        temporario = caminho.with_name(caminho.name + ".tmp")
+        temporario.write_bytes(b"".join(ficam))
+        temporario.replace(caminho)
+
+        offset = 0
+        for linha in ficam:
+            outro = id_da(linha)
+            if outro:
+                self.conn.execute(
+                    "UPDATE entries SET offset = ? WHERE id = ? AND day = ?", (offset, outro, day)
+                )
+            offset += len(linha)
 
     def rebuild_index(self) -> int:
         """Reconstroi o indice a partir dos JSONL. O log e a fonte da verdade."""
