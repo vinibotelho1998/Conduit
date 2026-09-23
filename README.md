@@ -32,9 +32,10 @@ python -m venv .venv
 .venv\Scripts\python tests\rodar.py
 ```
 
-Sem framework. As tres suites sobem a janela de verdade num Qt sem tela e conversam com
-um servidor SFTP de verdade, aberto numa porta livre da propria maquina. Elas rodam no CI
-antes de gerar o instalador.
+Sem framework. A primeira suite confere o nucleo funcao por funcao, sem janela, em poucos
+segundos. As outras sobem a janela de verdade num Qt sem tela e conversam com um servidor
+SFTP de verdade, aberto numa porta livre da propria maquina. Todas rodam no CI antes de
+gerar o instalador.
 
 ## O que ele faz
 

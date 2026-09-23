@@ -1,4 +1,4 @@
-"""Roda os tres testes em sequencia e devolve um resumo.
+"""Roda os cinco testes em sequencia e devolve um resumo.
 
     python tests/rodar.py
 
@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
-SUITES = ("testa_sftp.py", "testa_navegador_sftp.py", "testa_interface.py")
+SUITES = ("testa_nucleo.py", "testa_sftp.py", "testa_navegador_sftp.py", "testa_interface.py", "testa_uso.py")
 
 
 def main() -> int:
