@@ -98,7 +98,8 @@ def main() -> int:
     p.confere("listou a raiz", set(nomes) >= {"entrada", "leiame.txt"}, str(nomes))
     p.confere("pasta primeiro", nomes and nomes[0] == "entrada", str(nomes))
     p.confere("coluna de permissoes preenchida", bool(navegador.tabela.item(0, 3).text()))
-    p.confere("resumo conta o que tem", "pastas" in navegador.resumo.text(), navegador.resumo.text())
+    p.confere("resumo conta o que tem, no singular quando e uma", "1 pasta" in navegador.resumo.text()
+              and "1 pastas" not in navegador.resumo.text(), navegador.resumo.text())
 
     p.secao("navegar")
     navegador.ir_para("/entrada")

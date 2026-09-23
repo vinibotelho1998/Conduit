@@ -112,7 +112,7 @@ def main() -> int:
     p.confere("aba abriu", janela.tabs.count() == 1)
     p.confere("botao em portugues", editor.send_btn.text() == "Enviar", editor.send_btn.text())
     editor.set_sending(True)
-    p.confere("estado de envio em portugues", editor.send_btn.text() == "Enviando")
+    p.confere("estado de envio em portugues, e cancelavel", editor.send_btn.text() == "Cancelar")
     editor.set_sending(False)
 
     editor.url.setPlainText("https://x/{{nao_existe_em_lugar_nenhum}}")

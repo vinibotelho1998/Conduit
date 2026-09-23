@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QDialog,
     QHBoxLayout,
     QHeaderView,
-    QInputDialog,
     QLabel,
-    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -22,12 +19,11 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import scopes
-from ..core.workspaces import new_id
 from . import theme
 from .kvtable import KvTable
 from . import highlight
 from .request_editor import mono
-from .widgets import cabecalho_a_esquerda, dica_de_fora
+from .widgets import cabecalho_a_esquerda, conta, dica_de_fora
 
 
 class ScopePage(QWidget):
@@ -65,6 +61,7 @@ class VariablesDialog(QDialog):
         runtime: dict | None,
         parent=None,
         aba: str = "",
+        origem: str = "",
     ):
         super().__init__(parent)
         self.tree = tree
@@ -77,43 +74,57 @@ class VariablesDialog(QDialog):
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(10)
 
-        ordem = QLabel(
-            "Precedencia, do mais fraco pro mais forte:   "
-            "<b style='color:#9aa4b2'>globais</b>  &lt;  "
-            "<b style='color:#c084fc'>collection</b>  &lt;  "
-            "<b style='color:#50e3c2'>pasta</b>  &lt;  "
-            "<b style='color:#4da3ff'>ambiente</b>  &lt;  "
-            "<b style='color:#fca130'>execucao</b>"
+        # Cor de cada escopo pela paleta do tema, a mesma da tabela Efetivo. Com hex
+        # fixo, ambiente saia numa cor na legenda e em outra nos nomes, e pasta quase
+        # sumia no tema claro. Execucao fica de fora: nao ha como criar uma pela tela.
+        ordem = QLabel()
+        theme.ao_trocar_widget(
+            ordem,
+            lambda alvo: alvo.setText(
+                "Precedencia, do mais fraco pro mais forte:   "
+                + "  &lt;  ".join(
+                    f"<b style='color:{highlight.cor_do_escopo(escopo)}'>{escopo}</b>"
+                    for escopo in ("globais", "collection", "pasta", "ambiente")
+                )
+            ),
         )
         root.addWidget(ordem)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
-
+        # nome de origem de cada aba, pra abrir a pasta certa quando ha pasta dentro de pasta
+        self._origem_da_aba: dict[int, str] = {}
 
         colecao = next((n for n in self.ancestry if n.get("type") == "collection"), None)
         if colecao is not None:
             colecao.setdefault("variables", [])
             self.pagina_colecao = ScopePage(
                 f"Variaveis da collection {colecao.get('name')}",
-                "Vao junto quando voce exporta ou compartilha a collection. Nunca coloque "
-                "segredo real aqui, use o ambiente com a marca de secreto.",
+                "Vao junto quando voce exporta ou compartilha a collection. Marcada como "
+                "secreta, o valor fica no cofre desta maquina e sai do arquivo versionado.",
                 colecao["variables"],
             )
             self.pagina_colecao.changed.connect(self._mudou)
-            self.tabs.addTab(self.pagina_colecao, "Collection")
+            indice = self.tabs.addTab(self.pagina_colecao, "Collection")
+            self._origem_da_aba[indice] = colecao.get("name") or ""
 
-        pasta = next((n for n in reversed(self.ancestry) if n.get("type") == "folder"), None)
-        if pasta is not None:
+        # Uma aba por pasta da linhagem, da mais de fora pra mais de dentro. So com a
+        # mais proxima, a variavel da pasta de fora caia numa pagina onde ela nao existia,
+        # e editar criava uma copia na pasta de dentro.
+        pastas = [n for n in self.ancestry if n.get("type") == "folder"]
+        for pasta in pastas:
             pasta.setdefault("variables", [])
-            self.pagina_pasta = ScopePage(
+            pagina = ScopePage(
                 f"Variaveis da pasta {pasta.get('name')}",
                 "Valem so para os requests dentro desta pasta. Servem para valor comum de "
                 "um grupo, e perdem para o ambiente de proposito.",
                 pasta["variables"],
             )
-            self.pagina_pasta.changed.connect(self._mudou)
-            self.tabs.addTab(self.pagina_pasta, "Pasta")
+            pagina.changed.connect(self._mudou)
+            self.pagina_pasta = pagina
+            rotulo = "Pasta" if len(pastas) == 1 else f"Pasta {pasta.get('name')}"
+            indice = self.tabs.addTab(pagina, rotulo)
+            self._origem_da_aba[indice] = pasta.get("name") or ""
 
         # Ambientes e globais moram na lateral agora, no modelo do Postman. Aqui fica
         # so o que e do contexto do request aberto, mais o resultado efetivo.
@@ -135,157 +146,19 @@ class VariablesDialog(QDialog):
         # a aba pedida so pode ser escolhida aqui no fim: trocar de aba dispara a
         # atualizacao do mapa efetivo, que precisa do rodape ja montado
         if aba:
-            for indice in range(self.tabs.count()):
-                if self.tabs.tabText(indice).lower() == aba.lower():
-                    self.tabs.setCurrentIndex(indice)
-                    break
+            self._escolher_aba(aba, origem)
 
-
-    def _pagina_ambientes(self) -> QWidget:
-        pagina = QWidget()
-        layout = QVBoxLayout(pagina)
-        layout.setContentsMargins(12, 10, 12, 12)
-        layout.setSpacing(8)
-
-        barra = QHBoxLayout()
-        barra.setSpacing(6)
-        self.combo_env = QComboBox()
-        self.combo_env.setMinimumWidth(220)
-        self.combo_env.currentIndexChanged.connect(self._trocar_env)
-        barra.addWidget(self.combo_env)
-
-        for texto, alvo in (
-            ("Novo", self._novo_env),
-            ("Renomear", self._renomear_env),
-            ("Duplicar", self._duplicar_env),
-            ("Usar este", self._ativar_env),
-            ("Excluir", self._excluir_env),
-        ):
-            botao = QPushButton(texto)
-            botao.clicked.connect(alvo)
-            barra.addWidget(botao)
-        barra.addStretch(1)
-
-        self.marca_ativo = QLabel("")
-        self.marca_ativo.setObjectName("hint")
-        barra.addWidget(self.marca_ativo)
-        layout.addLayout(barra)
-
-        explicacao = QLabel(
-            "O ambiente e o que voce troca na barra para ir de dev para hml e para prd. "
-            "Marque como secreto o que nao pode aparecer em historico nem em log."
-        )
-        explicacao.setObjectName("hint")
-        explicacao.setWordWrap(True)
-        layout.addWidget(explicacao)
-
-        self.caixa_env = QWidget()
-        QVBoxLayout(self.caixa_env).setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.caixa_env, 1)
-
-        self._recarregar_envs()
-        return pagina
-
-    def _recarregar_envs(self, selecionar: str | None = None) -> None:
-        self.combo_env.blockSignals(True)
-        self.combo_env.clear()
-        for env in self.tree.get("environments") or []:
-            self.combo_env.addItem(env.get("name") or "sem nome", env.get("id"))
-        alvo = selecionar or self.tree.get("activeEnv")
-        indice = self.combo_env.findData(alvo)
-        self.combo_env.setCurrentIndex(indice if indice >= 0 else 0)
-        self.combo_env.blockSignals(False)
-        self._trocar_env()
-
-    def _env_atual(self) -> dict | None:
-        alvo = self.combo_env.currentData()
-        for env in self.tree.get("environments") or []:
-            if env.get("id") == alvo:
-                return env
-        return None
-
-    def _trocar_env(self) -> None:
-        env = self._env_atual()
-        layout = self.caixa_env.layout()
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        if env is None:
-            vazio = QLabel("nenhum ambiente ainda, crie o primeiro em Novo")
-            vazio.setObjectName("hint")
-            vazio.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(vazio)
-            self.marca_ativo.setText("")
-            return
-
-        env.setdefault("values", [])
-        tabela = KvTable(env["values"], ("Nome", "Valor"), with_secret=True)
-        tabela.changed.connect(self._mudou)
-        layout.addWidget(tabela)
-        ativo = env.get("id") == self.tree.get("activeEnv")
-        self.marca_ativo.setText("este e o ambiente ativo" if ativo else "ambiente ativo e outro")
-
-    def _novo_env(self) -> None:
-        nome, ok = QInputDialog.getText(self, "Novo ambiente", "Nome do ambiente")
-        if not ok or not nome.strip():
-            return
-        env = {"id": new_id("env"), "name": nome.strip(), "values": []}
-        self.tree.setdefault("environments", []).append(env)
-        self.tree["activeEnv"] = env["id"]
-        self._recarregar_envs(env["id"])
-        self._mudou()
-
-    def _ativar_env(self) -> None:
-        env = self._env_atual()
-        if not env:
-            return
-        self.tree["activeEnv"] = env.get("id")
-        self._trocar_env()
-        self._mudou()
-
-    def _renomear_env(self) -> None:
-        env = self._env_atual()
-        if not env:
-            return
-        nome, ok = QInputDialog.getText(self, "Renomear ambiente", "Nome", text=env.get("name") or "")
-        if ok and nome.strip():
-            env["name"] = nome.strip()
-            self._recarregar_envs(env["id"])
-            self._mudou()
-
-    def _duplicar_env(self) -> None:
-        import copy
-
-        env = self._env_atual()
-        if not env:
-            return
-        clone = copy.deepcopy(env)
-        clone["id"] = new_id("env")
-        clone["name"] = f"{env.get('name')} copia"
-        self.tree["environments"].append(clone)
-        self._recarregar_envs(clone["id"])
-        self._mudou()
-
-    def _excluir_env(self) -> None:
-        env = self._env_atual()
-        if not env:
-            return
-        resposta = QMessageBox.question(
-            self,
-            "Excluir ambiente",
-            f"Excluir o ambiente {env.get('name')} e todos os valores dele?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if resposta != QMessageBox.StandardButton.Yes:
-            return
-        self.tree["environments"].remove(env)
-        if self.tree.get("activeEnv") == env.get("id"):
-            self.tree["activeEnv"] = None
-        self._recarregar_envs()
-        self._mudou()
+    def _escolher_aba(self, aba: str, origem: str = "") -> None:
+        candidatas = [
+            indice for indice in range(self.tabs.count())
+            if self.tabs.tabText(indice).lower().split(" ")[0] == aba.lower()
+        ]
+        if origem:
+            certas = [i for i in candidatas if self._origem_da_aba.get(i) == origem]
+            candidatas = certas or candidatas
+        if candidatas:
+            # a pasta mais de dentro e a ultima, e e ela que vence na precedencia
+            self.tabs.setCurrentIndex(candidatas[-1])
 
 
     def _pagina_efetivo(self) -> QWidget:
@@ -333,7 +206,7 @@ class VariablesDialog(QDialog):
             if not info.value:
                 item_valor.setForeground(QColor(theme.WARN))
             elif info.secret:
-                item_valor.setForeground(QColor("#c084fc"))
+                item_valor.setForeground(QColor(theme.CODIGO["variavel_secreta"]))
             item_valor.setToolTip(dica_de_fora(mostrado))
             self.tabela_efetivo.setItem(indice, 1, item_valor)
 
@@ -355,7 +228,8 @@ class VariablesDialog(QDialog):
         secretas = sum(1 for n in nomes if mapa[n].secret)
         vazias = sum(1 for n in nomes if not mapa[n].value)
         self.resumo.setText(
-            f"{len(nomes)} variaveis efetivas   |   {secretas} secretas   |   {vazias} sem valor"
+            f"{conta(len(nomes), 'variavel efetiva', 'variaveis efetivas')}   |   "
+            f"{conta(secretas, 'secreta', 'secretas')}   |   {vazias} sem valor"
         )
 
 

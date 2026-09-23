@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from html import escape
 
 from PySide6.QtCore import QSize, Qt, Signal
@@ -26,14 +27,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.history import History, Query, short_id
+from ..core.history import DIAS_CORPO, History, Query, short_id
 from .icons import ALTURA, LARGURA, method_icon
 from . import theme
 from .highlight import CodeHighlighter
 from .request_editor import mono
 from .response_view import human_bytes
 from .numeros import EditorNumerado
-from .widgets import cabecalho_a_esquerda, dica_de_fora
+from .widgets import Elastico, cabecalho_a_esquerda, conta, dica_de_fora
 
 PERIODOS = [("hoje", 1), ("7 dias", 7), ("30 dias", 30), ("tudo", 0)]
 STATUS_FILTROS = [
@@ -46,10 +47,66 @@ STATUS_FILTROS = [
 ]
 
 
+def quando(ts: str, hoje: date | None = None) -> str:
+    """Hora pra hoje, ontem mais a hora, e dia e hora pro resto.
+
+    So a hora fazia uma chamada de ontem as 14:32 parecer igual a uma de hoje no
+    mesmo horario, e o dia so aparecia passando o mouse linha por linha.
+    """
+    if not ts or len(ts) < 16:
+        return ts or ""
+    hoje = hoje or date.today()
+    try:
+        dia = date.fromisoformat(ts[:10])
+    except ValueError:
+        return ts[11:19]
+    if dia == hoje:
+        return ts[11:19]
+    if dia == hoje - timedelta(days=1):
+        return f"ontem {ts[11:16]}"
+    return f"{ts[8:10]}/{ts[5:7]} {ts[11:16]}"
+
+
+def entrada_do_resumo(resumo: dict) -> dict:
+    """Execucao montada so com o que o indice guardou, pro corpo que ja foi expurgado."""
+    return {
+        "id": resumo.get("id"),
+        "ts": resumo.get("ts"),
+        "requestId": resumo.get("request_id"),
+        "requestPath": resumo.get("request_path"),
+        "name": resumo.get("name"),
+        "env": resumo.get("env"),
+        "trace": {},
+        "semCorpo": True,
+        "request": {"method": resumo.get("method"), "url": resumo.get("url"), "headers": []},
+        "response": {
+            "ok": bool(resumo.get("ok")),
+            "status": resumo.get("status"),
+            "error": resumo.get("error"),
+            "elapsedMs": resumo.get("elapsed_ms"),
+            "sizeBytes": resumo.get("size_bytes"),
+            "headers": [],
+            "body": "",
+        },
+    }
+
+
 def status_color(status, ok: bool) -> str:
     if not status:
-        return theme.DIM
+        # sem status e falha de rede: a pilula da resposta diz falhou em vermelho, e a
+        # lista dizia o mesmo falhou em cinza, com cara de coisa neutra
+        return theme.DIM if ok else theme.ERR
     return theme.cor_do_status(status, ok)
+
+
+def _repintar_metodos(tabela) -> None:
+    """Refaz a pilula de metodo de cada linha, sem reconsultar o historico nem perder a
+    linha escolhida."""
+    for linha in range(tabela.rowCount()):
+        item = tabela.item(linha, 0)
+        if item is not None:
+            item.setIcon(method_icon((item.toolTip() or "GET").upper()))
+    tabela.viewport().update()
 
 
 class LinhaHistorico(QStyledItemDelegate):
@@ -88,7 +145,8 @@ class LinhaHistorico(QStyledItemDelegate):
         fonte_nome = QFont(option.font)
         fonte_nome.setPointSizeF(max(8.0, option.font.pointSizeF()))
         painter.setFont(fonte_nome)
-        painter.setPen(QPen(QColor(theme.TEXT)))
+        # sem corpo no log, a linha e so resumo: apagada, pra nao prometer o que nao abre
+        painter.setPen(QPen(QColor(theme.FAINT if dados.get("sem_corpo") else theme.TEXT)))
         metricas = painter.fontMetrics()
         nome = metricas.elidedText(dados["nome"], Qt.TextElideMode.ElideRight, area.width())
         painter.drawText(area.left(), area.top() + metricas.ascent(), nome)
@@ -105,7 +163,9 @@ class LinhaHistorico(QStyledItemDelegate):
         painter.drawText(x, base, dados["hora"])
         x += sub.horizontalAdvance(dados["hora"]) + 8
 
-        painter.setPen(QPen(QColor(dados["cor_status"])))
+        # a cor sai da paleta na hora de pintar: guardada no item, a lista continuava com
+        # o verde neon do escuro depois de trocar pro claro
+        painter.setPen(QPen(QColor(status_color(dados.get("status_bruto"), dados.get("ok", True)))))
         painter.drawText(x, base, dados["status"])
         x += sub.horizontalAdvance(dados["status"]) + 8
 
@@ -127,6 +187,7 @@ class HistoryPanel(QWidget):
     replay_requested = Signal(str)          # id da execucao
     open_request_requested = Signal(str)    # id do request na arvore
     load_response_requested = Signal(dict)  # execucao completa
+    recado = Signal(str)                    # frase pro rodape da janela
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -187,15 +248,33 @@ class HistoryPanel(QWidget):
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._menu)
         root.addWidget(self.table, 1)
+        # a pilula do metodo e desenho pronto, com a cor do tema dentro
+        theme.ao_trocar_widget(self.table, _repintar_metodos)
+
+        # Lista vazia dizia nada: nao dava pra saber se nunca houve envio ou se o filtro
+        # escondeu tudo. Favoritos e SFTP ja explicavam o proprio vazio.
+        self.vazio = QLabel("")
+        self.vazio.setObjectName("hint")
+        self.vazio.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.vazio.setWordWrap(True)
+        self.vazio.setContentsMargins(16, 24, 16, 24)
+        self.vazio.hide()
+        root.addWidget(self.vazio, 1)
+
+        # o resumo mora numa linha propria: dividindo a largura com os dois botoes, numa
+        # lateral estreita ele virava "0 de 0 ex" e os botoes "D...e" e "R...r"
+        # Elastico: com o texto inteiro como largura minima, ele pedia 420 pixels e a
+        # lateral de 300 cortava o fim da frase sem reticencias
+        self.summary = Elastico()
+        self.summary.setObjectName("hint")
+        self.summary.setContentsMargins(10, 4, 10, 0)
+        root.addWidget(self.summary)
 
         foot = QWidget()
         foot_layout = QHBoxLayout(foot)
         foot_layout.setContentsMargins(8, 4, 8, 8)
         foot_layout.setSpacing(6)
-
-        self.summary = QLabel("")
-        self.summary.setObjectName("hint")
-        foot_layout.addWidget(self.summary, 1)
+        foot_layout.addStretch(1)
 
         self.btn_detail = QToolButton()
         self.btn_detail.setText("Detalhe")
@@ -212,6 +291,7 @@ class HistoryPanel(QWidget):
             )
             foot_layout.addWidget(btn)
         root.addWidget(foot)
+        self._ajustar_botoes()
 
 
     def set_history(self, history: History | None) -> None:
@@ -233,10 +313,13 @@ class HistoryPanel(QWidget):
         )
         rows = self.history.query(spec)
         self.table.setRowCount(len(rows))
+        com_corpo = self.history.dias_com_corpo()
+        hoje = date.today()
 
         for index, row in enumerate(rows):
             hora = row["ts"][11:19] if row["ts"] else ""
             dia = row["ts"][5:10] if row["ts"] else ""
+            sem_corpo = (row["day"] or "") not in com_corpo
 
             # coluna da pilula, a mesma da arvore, pra leitura ser igual nos dois lugares
             metodo = QTableWidgetItem()
@@ -250,6 +333,8 @@ class HistoryPanel(QWidget):
                 detalhe += f"\ntrace {row['trace']}"
             if row["error"]:
                 detalhe += f"\n{row['error']}"
+            if sem_corpo:
+                detalhe += f"\ncorpo apagado depois de {DIAS_CORPO} dias, sobrou o resumo"
 
             partes = []
             if row["elapsed_ms"] is not None:
@@ -265,9 +350,11 @@ class HistoryPanel(QWidget):
                 Qt.ItemDataRole.UserRole + 1,
                 {
                     "nome": row["name"] or row["url"] or "sem nome",
-                    "hora": hora,
+                    "hora": quando(row["ts"] or "", hoje),
+                    "sem_corpo": sem_corpo,
                     "status": str(row["status"] or "falhou"),
-                    "cor_status": status_color(row["status"], bool(row["ok"])),
+                    "status_bruto": row["status"],
+                    "ok": bool(row["ok"]),
                     "resto": "   ".join(partes),
                 },
             )
@@ -277,8 +364,25 @@ class HistoryPanel(QWidget):
 
         stats = self.history.stats()
         self.summary.setText(
-            f"{len(rows)} de {stats['total']} execucoes   |   {stats['falhas']} falhas"
+            f"{len(rows)} de {conta(stats['total'], 'execucao', 'execucoes')}   |   "
+            f"{conta(stats['falhas'] or 0, 'falha', 'falhas')}"
         )
+        filtrando = bool(self.search.text().strip()) or bool(self.status_filter.currentData())
+        if rows:
+            self.vazio.hide()
+        elif stats["total"] and (filtrando or self.period_filter.currentData()):
+            self.vazio.setText("nada bate com o filtro")
+            self.vazio.show()
+        else:
+            self.vazio.setText("nenhuma execucao ainda\n\nCtrl+Enter envia o request aberto")
+            self.vazio.show()
+        self.table.setVisible(bool(rows))
+        self._ajustar_botoes()
+
+    def _ajustar_botoes(self) -> None:
+        tem = self.selected_id() is not None
+        self.btn_detail.setEnabled(tem)
+        self.btn_replay.setEnabled(tem)
 
 
     def selected_id(self) -> str | None:
@@ -288,11 +392,28 @@ class HistoryPanel(QWidget):
         item = self.table.item(rows[0].row(), 1) or self.table.item(rows[0].row(), 0)
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
+    def _entrada(self, entry_id: str) -> dict | None:
+        """A execucao inteira do log, ou so o resumo do indice quando o corpo ja foi."""
+        entry = self.history.get(entry_id)
+        if entry is None:
+            resumo = self.history.resumo(entry_id)
+            if resumo is not None:
+                return entrada_do_resumo(resumo)
+        return entry
+
     def _on_select(self) -> None:
+        self._ajustar_botoes()
         entry_id = self.selected_id()
         if not entry_id or not self.history:
             return
-        entry = self.history.get(entry_id)
+        entry = self._entrada(entry_id)
+        if entry and entry.get("semCorpo"):
+            # clicar mostrava nada e nao dizia nada
+            self.recado.emit(
+                f"o corpo desta execucao foi apagado depois de {DIAS_CORPO} dias, sobrou "
+                "o resumo. Detalhe mostra o que ficou, Reenviar manda de novo"
+            )
+            return
         if entry:
             self.load_response_requested.emit(entry)
 
@@ -300,7 +421,7 @@ class HistoryPanel(QWidget):
         entry_id = self.selected_id()
         if not entry_id or not self.history:
             return
-        entry = self.history.get(entry_id)
+        entry = self._entrada(entry_id)
         if entry:
             HistoryDetail(entry, self).exec()
 
@@ -313,10 +434,10 @@ class HistoryPanel(QWidget):
         entry_id = self.selected_id()
         if not entry_id or not self.history:
             return
-        entry = self.history.get(entry_id)
+        entry = self._entrada(entry_id)
         menu = QMenu(self)
         menu.addAction("Ver detalhe", self.open_detail)
-        menu.addAction("Reenviar", self._replay)
+        menu.addAction("Enviar o request de novo", self._replay)
         menu.addSeparator()
         menu.addAction("Copiar id", lambda: QGuiApplication.clipboard().setText(entry_id))
         if entry:
@@ -324,7 +445,10 @@ class HistoryPanel(QWidget):
                 "Copiar url",
                 lambda: QGuiApplication.clipboard().setText(entry["request"]["url"]),
             )
-            menu.addAction("Copiar como curl", lambda: QGuiApplication.clipboard().setText(to_curl(entry)))
+            if not entry.get("semCorpo"):
+                menu.addAction(
+                    "Copiar como curl", lambda: QGuiApplication.clipboard().setText(to_curl(entry))
+                )
             if entry.get("requestId"):
                 menu.addAction(
                     "Abrir o request na arvore",
@@ -398,6 +522,15 @@ class HistoryDetail(QDialog):
             f" &nbsp;·&nbsp; ambiente {escape(str(entry.get('env') or 'nenhum'))}"
         )
         head_layout.addWidget(resumo)
+
+        if entry.get("semCorpo"):
+            aviso_corpo = QLabel(
+                f"O corpo desta execucao foi apagado depois de {DIAS_CORPO} dias. Sobrou o "
+                "resumo do indice: metodo, url, status e tempo."
+            )
+            aviso_corpo.setWordWrap(True)
+            theme.estilizar(aviso_corpo, lambda: f"color: {theme.WARN};")
+            head_layout.addWidget(aviso_corpo)
 
         caminho = QLabel(f"{entry.get('requestPath') or ''}   id {entry.get('id')}")
         caminho.setTextFormat(Qt.TextFormat.PlainText)

@@ -106,7 +106,9 @@ def montar_regras() -> None:
     ]
 
     CODE_RULES[:] = [
-        (QRegularExpression(r"(#|//).*$"), _fmt(c["comentario"], italic=True)),
+        # so no comeco da linha ou depois de espaco: no curl a url vai sem aspas, e o //
+        # do https: virava comentario da metade da linha em diante
+        (QRegularExpression(r"(?:^|(?<=\s))(?:#|//).*$"), _fmt(c["comentario"], italic=True)),
         (
             QRegularExpression(
                 r'"(?:[^"\\]|\\.)*"'

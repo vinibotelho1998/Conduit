@@ -11,9 +11,10 @@ resto da janela continue chamando do mesmo jeito.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from . import theme
+from .widgets import Elastico
 
 ALTURA = 30
 
@@ -58,7 +59,12 @@ class Rodape(QWidget):
         self.linha.setContentsMargins(6, 0, 10, 0)
         self.linha.setSpacing(2)
 
-        self.mensagem = QLabel("")
+        # Elastico, e nao QLabel: cada envio escreve aqui a url resolvida, e com uma de
+        # 170 caracteres o QLabel exigia 1900 pixels e alargava a janela alem da tela
+        self.mensagem = Elastico()
+        # fica com a sobra, e nao disputa largura com os botoes: pela largura do texto
+        # inteiro, uma mensagem comprida espremia os botoes da esquerda
+        self.mensagem.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         theme.estilizar(self.mensagem, lambda: f"color: {theme.DIM}; padding-left: 10px;")
         self.linha.addWidget(self.mensagem, 1)
 
@@ -84,7 +90,7 @@ class Rodape(QWidget):
         self.mensagem.setText("")
 
     def currentMessage(self) -> str:  # noqa: N802
-        return self.mensagem.text()
+        return self.mensagem.texto_cheio()
 
     def setSizeGripEnabled(self, _valor: bool) -> None:  # noqa: N802
         pass

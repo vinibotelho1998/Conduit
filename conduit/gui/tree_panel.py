@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QPushButton,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -179,6 +180,12 @@ class TreePanel(QWidget):
     # perguntar.
     exclusao_pedida = Signal(object)
     exemplo_exclusao_pedida = Signal(object)
+    variaveis_pedidas = Signal(object)
+    # request novo que acabou de ganhar nome: a janela abre a aba dele
+    request_criado = Signal(object)
+    # botoes do estado vazio, quando o workspace ainda nao tem collection
+    nova_collection_pedida = Signal()
+    importar_pedido = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -189,6 +196,11 @@ class TreePanel(QWidget):
         self.ordenacao = "manual"
         self.uso: dict = {}
         self.caminho_de: dict[str, str] = {}
+        # texto da busca, reaplicado a cada refresh: sem guardar, criar um item ou salvar
+        # um exemplo voltava a mostrar a arvore inteira com o texto ainda na caixa
+        self._filtro = ""
+        # request recem criado esperando o nome, pra abrir a aba quando a edicao fechar
+        self._nomeando: str | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -231,6 +243,51 @@ class TreePanel(QWidget):
         self.btn_collapse.clicked.connect(self._collapse_all)
         root.addWidget(head)
 
+        # Com ordem diferente da manual, arrastar desliga. Sem esta linha o arrastar
+        # parava de funcionar sem nada na tela dizendo por que.
+        self.nota_ordem = QLabel("")
+        self.nota_ordem.setObjectName("hint")
+        self.nota_ordem.setWordWrap(True)
+        self.nota_ordem.setContentsMargins(12, 0, 8, 4)
+        self.nota_ordem.hide()
+        root.addWidget(self.nota_ordem)
+
+        # Workspace sem collection nenhuma abria com a coluna em branco, e o unico
+        # caminho era o + de vinte pixels no cabecalho.
+        self.vazio = QWidget()
+        vazio = QVBoxLayout(self.vazio)
+        vazio.setContentsMargins(16, 28, 16, 16)
+        vazio.setSpacing(10)
+        titulo_vazio = QLabel("Nenhuma collection ainda")
+        titulo_vazio.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        titulo_vazio.setStyleSheet("font-weight: 600;")
+        titulo_vazio.setWordWrap(True)
+        vazio.addWidget(titulo_vazio)
+        criar = QPushButton("Nova collection")
+        criar.setObjectName("primario")
+        criar.clicked.connect(self.nova_collection_pedida.emit)
+        vazio.addWidget(criar)
+        importar = QPushButton("Importar")
+        importar.clicked.connect(self.importar_pedido.emit)
+        vazio.addWidget(importar)
+        dica_vazio = QLabel("ou cole um curl com Ctrl+Shift+V")
+        dica_vazio.setObjectName("hint")
+        dica_vazio.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dica_vazio.setWordWrap(True)
+        vazio.addWidget(dica_vazio)
+        vazio.addStretch(1)
+        self.vazio.hide()
+        root.addWidget(self.vazio, 1)
+
+        self.sem_achado = QLabel("")
+        self.sem_achado.setObjectName("hint")
+        self.sem_achado.setWordWrap(True)
+        # repete o que foi digitado na busca, entao nunca e lido como html
+        self.sem_achado.setTextFormat(Qt.TextFormat.PlainText)
+        self.sem_achado.setContentsMargins(12, 8, 8, 4)
+        self.sem_achado.hide()
+        root.addWidget(self.sem_achado)
+
         self.tree = DropTree(self)
         self.tree.setObjectName("arvore")
         # O Qt considera que a marca de escolhido cobre tambem a coluna do recuo, e pinta
@@ -259,6 +316,8 @@ class TreePanel(QWidget):
         self.tree.itemChanged.connect(self._on_renamed)
         self.tree.itemExpanded.connect(lambda it: self._set_expanded(it, True))
         self.tree.itemCollapsed.connect(lambda it: self._set_expanded(it, False))
+        self.tree.itemDelegate().closeEditor.connect(self._fim_do_nome)
+        self.menu_ordem.setToolTipsVisible(True)
         root.addWidget(self.tree, 1)
 
 
@@ -306,6 +365,11 @@ class TreePanel(QWidget):
         self.tree.setDragDropMode(
             QTreeWidget.DragDropMode.InternalMove if manual else QTreeWidget.DragDropMode.NoDragDrop
         )
+        self.nota_ordem.setText(
+            "" if manual else
+            f"Ordem: {self.MODOS[self.ordenacao]}. Arrastar volta em Ordem manual"
+        )
+        self.nota_ordem.setVisible(not manual)
         self.refresh()
 
     def _chave_ordem(self, node: dict):
@@ -364,6 +428,11 @@ class TreePanel(QWidget):
             # setExpanded so vale depois do item estar dentro da arvore
             self._apply_expansion(item)
         self._loading = False
+        tem = bool(self.tree_data.get("collections"))
+        self.tree.setVisible(tem)
+        self.vazio.setVisible(not tem)
+        if self._filtro:
+            self.apply_filter(self._filtro)
         if keep_selection:
             self.select(keep_selection)
 
@@ -436,11 +505,28 @@ class TreePanel(QWidget):
         if self._loading:
             return
         node = self._node(item)
+        if node and not item.text(0).strip():
+            # nome vazio nao muda o modelo, entao a linha volta a mostrar o nome dele:
+            # ficava em branco ate o proximo refresh, parecendo um item sem nome
+            self._loading = True
+            item.setText(0, node.get("name") or "")
+            self._loading = False
+            return
         if node and item.text(0) and item.text(0) != node.get("name"):
             node["name"] = item.text(0)
             if node.get("type") == "example":
                 node["_exemplo"]["name"] = item.text(0)
             self.tree_changed.emit()
+
+    def _fim_do_nome(self, *_) -> None:
+        """A edicao do nome fechou. Se era um request recem criado, ele abre na aba.
+
+        Abrir antes, no meio da edicao, derrubava o editor do nome.
+        """
+        alvo, self._nomeando = self._nomeando, None
+        node = self._by_id.get(alvo) if alvo else None
+        if node is not None and node.get("type") == "request":
+            self.request_criado.emit(node)
 
     def _set_expanded(self, item: QTreeWidgetItem, value: bool) -> None:
         node = self._node(item)
@@ -518,8 +604,10 @@ class TreePanel(QWidget):
             )
             menu.addSeparator()
         if node and node.get("type") != "request":
-            menu.addAction("Auth desta " + ("collection" if node.get("type") == "collection" else "pasta"),
-                           lambda: self.auth_pedida.emit(node))
+            tipo = "collection" if node.get("type") == "collection" else "pasta"
+            # collection sem request nenhum nao tinha como receber variavel pela tela
+            menu.addAction(f"Variaveis desta {tipo}", lambda: self.variaveis_pedidas.emit(node))
+            menu.addAction(f"Auth desta {tipo}", lambda: self.auth_pedida.emit(node))
             menu.addSeparator()
         if node:
             menu.addAction("Renomear", lambda: self.rename(node))
@@ -569,6 +657,8 @@ class TreePanel(QWidget):
         parent["expanded"] = True
         self.refresh()
         self.tree_changed.emit()
+        if kind == "request":
+            self._nomeando = node["id"]
         self.rename(node)
         return node
 
@@ -587,7 +677,8 @@ class TreePanel(QWidget):
         self.tree_changed.emit()
         self.favorito_mudou.emit()
 
-    def duplicate(self, node: dict) -> None:
+    def duplicate(self, node: dict, campos: dict | None = None) -> None:
+        """`campos` troca o conteudo da copia, como o rascunho de uma aba com edicao."""
         self.guardar_estado(f"duplicar {node.get('name')}")
         import copy
 
@@ -608,6 +699,8 @@ class TreePanel(QWidget):
 
         reid(clone)
         clone["name"] = f"{node.get('name')} copia"
+        if campos:
+            clone.update(copy.deepcopy(campos))
         parent = self.find_parent(node)
         siblings = parent["items"] if parent else self.tree_data["collections"]
         posicao = next((i for i, irmao in enumerate(siblings) if irmao is node), None)
@@ -720,6 +813,7 @@ class TreePanel(QWidget):
 
     def apply_filter(self, text: str) -> None:
         query = (text or "").strip().lower()
+        self._filtro = query
 
         def visit(item: QTreeWidgetItem) -> bool:
             node = self._node(item)
@@ -735,8 +829,22 @@ class TreePanel(QWidget):
                 item.setExpanded(True)
             return visible
 
-        for index in range(self.tree.topLevelItemCount()):
-            visit(self.tree.topLevelItem(index))
+        # Abrir pasta pra mostrar o achado e coisa da busca, e nao escolha sua: sem a
+        # guarda cada pasta aberta por ela virava expanded no modelo, e o salvar gravava
+        # isso como escolha sua. Limpar a busca devolve como estava.
+        self._loading = True
+        achou = False
+        try:
+            for index in range(self.tree.topLevelItemCount()):
+                achou = visit(self.tree.topLevelItem(index)) or achou
+                if not query:
+                    self._apply_expansion(self.tree.topLevelItem(index))
+        finally:
+            self._loading = False
+        # busca sem resultado deixava a coluna em branco, sem dizer que nada bateu
+        vazia = bool(query) and not achou and bool(self.tree_data.get("collections"))
+        self.sem_achado.setText(f"nada encontrado para {text.strip()}" if vazia else "")
+        self.sem_achado.setVisible(vazia)
 
     def refresh_icon(self, node: dict) -> None:
         item = self._item_by_id(node.get("id"))

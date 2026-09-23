@@ -40,7 +40,7 @@ from . import icons
 from . import theme
 from . import highlight
 from .request_editor import mono
-from .widgets import cabecalho_a_esquerda, dica_de_fora
+from .widgets import cabecalho_a_esquerda, conta, dica_de_fora
 
 PAPEL_VALOR = Qt.ItemDataRole.UserRole + 1
 PAPEL_SECRETO = Qt.ItemDataRole.UserRole + 2
@@ -228,9 +228,9 @@ class EnvPeek(QFrame):
             self.tabela.setItem(indice, 3, item_origem)
             self.tabela.setRowHeight(indice, theme.medida("linha_tabela"))
 
-        partes = [f"{len(nomes)} variaveis"]
+        partes = [conta(len(nomes), "variavel", "variaveis")]
         if secretas:
-            partes.append(f"{secretas} secretas")
+            partes.append(conta(secretas, "secreta", "secretas"))
         if vazias:
             partes.append(f"{vazias} sem valor")
         self.resumo.setText("   ·   ".join(partes))

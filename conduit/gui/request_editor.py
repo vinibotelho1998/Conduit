@@ -6,9 +6,10 @@ import json
 import re
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QKeyEvent
+from PySide6.QtGui import QColor, QFont, QKeyEvent, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -72,7 +74,10 @@ class UrlEdit(QPlainTextEdit):
         if texto and parece_curl(texto):
             self.curl_colado.emit(texto)
             return
-        super().insertFromMimeData(fonte)
+        # Endereco copiado de documento ou de e-mail vem com o fim de linha junto. Colado
+        # como veio, o campo ganhava uma segunda linha invisivel e o envio falhava com
+        # caractere nao imprimivel numa posicao que a tela nao mostrava.
+        self.insertPlainText("".join(linha.strip() for linha in texto.splitlines()))
 
     def __init__(self, text: str = "", parent=None):
         super().__init__(text, parent)
@@ -100,8 +105,8 @@ class RequestEditor(QWidget):
     send_requested = Signal()
     curl_pedido = Signal(str)
     pedir_variavel = Signal(str)
-    criar_variaveis = Signal(list)
     salvar_pedido = Signal()
+    cancelar_pedido = Signal()
     # True pede o curl com o segredo em claro, False troca por {{nome}}
     copiar_curl_pedido = Signal(bool)
     copiar_url_pedido = Signal()
@@ -114,14 +119,10 @@ class RequestEditor(QWidget):
         self._loading = True
         self._syncing = False
         self._alvo_aviso = ""
-
-        # Escrever {{algo}} que ainda nao existe cria a variavel sozinho, no ambiente
-        # ativo. Espera voce parar de digitar, senao {{appClientId}} nasceria como
-        # {{t}}, {{to}}, {{tok}} enquanto a mao anda.
-        self._timer_novas = QTimer(self)
-        self._timer_novas.setSingleShot(True)
-        self._timer_novas.setInterval(900)
-        self._timer_novas.timeout.connect(self._pedir_criacao)
+        self._enviando = False
+        # Variavel que nao existe nao nasce mais sozinha: cada pausa na digitacao
+        # criava um nome no ambiente ativo, e corrigir {{tokn}} pra {{token}} deixava
+        # os dois la, as vezes no ambiente de producao. A faixa vermelha tem o criar.
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 10, 12, 0)
@@ -133,16 +134,14 @@ class RequestEditor(QWidget):
         self.method = QComboBox()
         self.method.setObjectName("metodo")
         self.method.addItems(METHODS)
-        # cada opcao da lista ja aparece na cor do proprio metodo
-        for indice, nome in enumerate(METHODS):
-            self.method.setItemData(
-                indice,
-                QColor(theme.METHOD_COLORS.get(nome, theme.TEXT)),
-                Qt.ItemDataRole.ForegroundRole,
-            )
+        # cada opcao da lista ja aparece na cor do proprio metodo, e na do tema de agora
+        for indice in range(len(METHODS)):
             self.method.setItemData(indice, mono(9), Qt.ItemDataRole.FontRole)
+        theme.ao_trocar_widget(self.method, self._pintar_lista_de_metodos)
         self._mostrar_metodo(request.get("method"))
-        self.method.setFixedWidth(112)
+        # cabe OPTIONS, o maior da lista; com 112 o GET sobrava num quadro largo enquanto
+        # a url, que e o que importa, era a unica coisa que encolhia em janela estreita
+        self.method.setFixedWidth(96)
         self.method.setFixedHeight(36)
         self.method.setFont(mono(9))
         self.method.currentTextChanged.connect(self._on_method)
@@ -221,13 +220,16 @@ class RequestEditor(QWidget):
         # largura travada na palavra maior: sem isso o botao crescia ao virar "Copiado"
         # e empurrava o Enviar por um segundo e meio, bem depois do clique
         self.copy_btn.setText("Copiado")
-        self.copy_btn.setMinimumWidth(self.copy_btn.sizeHint().width())
+        self._largura_copiar = self.copy_btn.sizeHint().width()
+        self.copy_btn.setMinimumWidth(self._largura_copiar)
         self.copy_btn.setText("Copiar")
+        self._estreito = False
 
         # Mesmo lugar e mesmo desenho do painel de codigo do Postman, entao quem vem de
         # la acha sem ler a dica.
         self.code_btn = QToolButton()
         self.code_btn.setObjectName("acaoBarra")
+        self.code_btn.setProperty("soIcone", True)
         self.code_btn.setFixedSize(38, 38)
         self.code_btn.setIconSize(QSize(18, 18))
         self.code_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -239,7 +241,20 @@ class RequestEditor(QWidget):
         self.send_btn.setObjectName("send")
         self.send_btn.setFixedHeight(38)
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.send_btn.clicked.connect(self.send_requested.emit)
+        # enquanto envia, o mesmo botao cancela: servidor que aceita e nao responde
+        # prendia a aba em Enviando sem saida nenhuma
+        self.send_btn.clicked.connect(
+            lambda: self.cancelar_pedido.emit() if self._enviando else self.send_requested.emit()
+        )
+        self.send_btn.setText("Cancelar")
+        self.send_btn.setMinimumWidth(self.send_btn.sizeHint().width())
+        self.send_btn.setText("Enviar")
+        # Esc so vale durante o envio: ligado sempre, ele roubava o Esc da grade e dos
+        # campos, que usam a tecla pra desistir da edicao
+        self._atalho_cancelar = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self._atalho_cancelar.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._atalho_cancelar.setEnabled(False)
+        self._atalho_cancelar.activated.connect(self.cancelar_pedido.emit)
 
         # Salvar fica do lado de Send porque e ali que a mao ja esta. Nasce apagado e
         # so acende quando existe alteracao, entao o botao tambem serve de aviso.
@@ -249,6 +264,9 @@ class RequestEditor(QWidget):
         self.save_btn.setEnabled(False)
         self.save_btn.setToolTip("Ctrl+S")
         self.save_btn.clicked.connect(self.salvar_pedido.emit)
+        # largura de Salvar tambem no Salvo: a primeira tecla na url trocava a palavra e a
+        # barra inteira andava uns pixels
+        self.save_btn.setMinimumWidth(self.save_btn.sizeHint().width())
 
         bar.addWidget(self.grupo_url, 1)
         bar.addWidget(self.copy_btn)
@@ -280,6 +298,7 @@ class RequestEditor(QWidget):
 
         self.exemplos = ExamplesPanel()
         self.tabs.addTab(self.exemplos, "Exemplos")
+        self.tabs.addTab(self._build_ajustes(), "Ajustes")
         so_a_pagina_aberta(self.tabs)
         root.addWidget(self.tabs, 1)
 
@@ -287,8 +306,6 @@ class RequestEditor(QWidget):
         self._on_method(self.method.currentText())
         self._normalizar_query()
         self.refresh_badges()
-        # montar a tela nao e digitar: nada do que veio do arquivo pede variavel nova
-        self._timer_novas.stop()
 
 
     def _build_body(self) -> QWidget:
@@ -365,6 +382,78 @@ class RequestEditor(QWidget):
         rolagem.setMinimumSize(320, 120)
         return rolagem
 
+    def _build_ajustes(self) -> QWidget:
+        """Tempo limite, verificacao de certificado e redirect deste request.
+
+        Existiam no arquivo e no curl colado, mas nao na tela: um curl -k funcionava na
+        sessao e, depois de salvar e reabrir, voltava o erro de certificado sem nenhum
+        lugar pra ver por que.
+        """
+        pagina = QWidget()
+        layout = QVBoxLayout(pagina)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        linha = QHBoxLayout()
+        linha.setSpacing(8)
+        rotulo = QLabel("Tempo limite de leitura")
+        linha.addWidget(rotulo)
+        self.ajuste_tempo = QSpinBox()
+        self.ajuste_tempo.setRange(0, 3600)
+        self.ajuste_tempo.setSuffix(" s")
+        self.ajuste_tempo.setSpecialValueText("sem limite")
+        self.ajuste_tempo.setFixedWidth(120)
+        # sem setas: a folha do tema nao desenha as do QSpinBox, e ficavam dois quadros vazios
+        self.ajuste_tempo.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.ajuste_tempo.valueChanged.connect(self._on_ajustes)
+        linha.addWidget(self.ajuste_tempo)
+        dica = QLabel("0 espera a resposta o tempo que ela levar")
+        dica.setObjectName("hint")
+        linha.addWidget(dica)
+        linha.addStretch(1)
+        layout.addLayout(linha)
+
+        self.ajuste_tls = QCheckBox("Verificar o certificado do servidor")
+        self.ajuste_tls.toggled.connect(self._on_ajustes)
+        layout.addWidget(self.ajuste_tls)
+        self.ajuste_redirect = QCheckBox("Seguir redirecionamento")
+        self.ajuste_redirect.toggled.connect(self._on_ajustes)
+        layout.addWidget(self.ajuste_redirect)
+
+        nota = QLabel(
+            "Desligar a verificacao aceita qualquer certificado, inclusive de quem esta no "
+            "meio do caminho. Pra CA interna, prefira Executar, Certificados e CA."
+        )
+        nota.setObjectName("hint")
+        nota.setWordWrap(True)
+        layout.addWidget(nota)
+        layout.addStretch(1)
+        self._carregar_ajustes()
+        return pagina
+
+    def _carregar_ajustes(self) -> None:
+        ajustes = self.request.get("settings") or {}
+        for campo in (self.ajuste_tempo, self.ajuste_tls, self.ajuste_redirect):
+            campo.blockSignals(True)
+        try:
+            tempo = int(float(ajustes.get("timeout") or 0))
+        except (TypeError, ValueError):
+            tempo = 0
+        self.ajuste_tempo.setValue(max(0, min(tempo, 3600)))
+        self.ajuste_tls.setChecked(ajustes.get("verifyTls", True) is not False)
+        self.ajuste_redirect.setChecked(ajustes.get("followRedirects", True) is not False)
+        for campo in (self.ajuste_tempo, self.ajuste_tls, self.ajuste_redirect):
+            campo.blockSignals(False)
+
+    def _on_ajustes(self, *_) -> None:
+        # so nasce settings no arquivo quando voce mexe aqui: abrir e olhar nao muda nada
+        ajustes = self.request.setdefault("settings", {})
+        ajustes["timeout"] = self.ajuste_tempo.value()
+        ajustes["verifyTls"] = self.ajuste_tls.isChecked()
+        ajustes["followRedirects"] = self.ajuste_redirect.isChecked()
+        self._atualizar_aviso()
+        self._bubble()
+
     def _build_docs(self) -> QWidget:
         self.docs = QPlainTextEdit(self.request.get("docs") or "")
         self.docs.setPlaceholderText("Anotacoes sobre esse request")
@@ -417,10 +506,6 @@ class RequestEditor(QWidget):
     def _bubble(self) -> None:
         if not self._loading:
             self.refresh_badges()
-            # so conta como pedido de variavel nova o que voce digitou. Abrir um request
-            # que usa {{algo}} de outro ambiente nao pode escrever no ambiente ativo
-            # sozinho, senao trocar de ambiente ia enchendo os dois de nome vazio.
-            self._timer_novas.start()
             self.changed.emit()
 
     def _mostrar_metodo(self, metodo: str | None) -> None:
@@ -439,11 +524,28 @@ class RequestEditor(QWidget):
 
     def _on_method(self, value: str) -> None:
         self.request["method"] = value
-        color = theme.METHOD_COLORS.get(value, theme.TEXT)
-        self.method.setStyleSheet(
-            f"QComboBox#metodo {{ color: {color}; font-weight: 700; }}"
+        # Pelo estilizar, e nao por setStyleSheet com a cor pronta: trocar pro tema claro
+        # deixava o POST no laranja do escuro, com contraste de 2 sobre o branco
+        theme.estilizar(
+            self.method,
+            lambda metodo=value: "QComboBox#metodo { color: "
+            f"{theme.METHOD_COLORS.get(metodo, theme.TEXT)}; font-weight: 700; }}",
         )
         self._bubble()
+
+    @staticmethod
+    def _pintar_lista_de_metodos(combo) -> None:
+        """A cor de cada opcao da lista, refeita a cada troca de tema.
+
+        Estatico de proposito: o gancho do tema guarda a funcao, e um metodo ligado
+        seguraria o editor inteiro na memoria depois de a aba fechar.
+        """
+        for indice in range(combo.count()):
+            combo.setItemData(
+                indice,
+                QColor(theme.METHOD_COLORS.get(combo.itemText(indice), theme.TEXT)),
+                Qt.ItemDataRole.ForegroundRole,
+            )
 
     def _on_url(self) -> None:
         self.request["url"] = self.url.toPlainText()
@@ -548,7 +650,13 @@ class RequestEditor(QWidget):
         except (json.JSONDecodeError, ValueError):
             self.window().statusBar().showMessage("corpo nao e JSON valido", 4000)
             return
-        self.body.setPlainText(json.dumps(parsed, indent=2, ensure_ascii=False))
+        # Pelo cursor, e nao por setPlainText, que zera a pilha de desfazer: formatar
+        # vira um passo so, e Ctrl+Z volta pro texto de antes e pras edicoes anteriores.
+        cursor = self.body.textCursor()
+        cursor.beginEditBlock()
+        cursor.select(QTextCursor.SelectionType.Document)
+        cursor.insertText(json.dumps(parsed, indent=2, ensure_ascii=False))
+        cursor.endEditBlock()
 
 
     def set_variables(self, variables: dict) -> None:
@@ -593,11 +701,6 @@ class RequestEditor(QWidget):
     def missing_vars(self) -> list[str]:
         return [nome for nome in self.used_vars() if nome not in self._variables]
 
-    def _pedir_criacao(self) -> None:
-        faltando = self.missing_vars()
-        if faltando:
-            self.criar_variaveis.emit(faltando)
-
     def _atualizar_aviso(self) -> None:
         faltando = self.missing_vars()
         if faltando:
@@ -616,6 +719,12 @@ class RequestEditor(QWidget):
             self._alvo_aviso = vazias[0]
             self.aviso.mostrar(
                 f"definida mas sem valor:  {', '.join(vazias)}", "aviso", "preencher"
+            )
+        elif (self.request.get("settings") or {}).get("verifyTls", True) is False:
+            self._alvo_aviso = ""
+            self.aviso.mostrar(
+                "este request nao verifica o certificado do servidor, ver a aba Ajustes",
+                "aviso",
             )
         else:
             self._alvo_aviso = ""
@@ -640,6 +749,9 @@ class RequestEditor(QWidget):
 
         tipo = (self.request.get("auth") or {}).get("type") or "inherit"
         self.tabs.set_badge(3, ponto=tipo not in ("none", "inherit"), cor=theme.WARN)
+
+        ajustes = self.request.get("settings") or {}
+        self.tabs.set_badge(6, ponto=ajustes.get("verifyTls", True) is False, cor=theme.WARN)
         if hasattr(self, "tamanho"):
             tamanho = len(bruto.encode("utf-8"))
             self.tamanho.setText(f"{tamanho} B" if tamanho else "")
@@ -668,12 +780,12 @@ class RequestEditor(QWidget):
             self.auth._carregando = True
             self.auth._carregar()
             self.auth._carregando = False
+        self._carregar_ajustes()
 
         self._loading = False
         self._on_method(self.method.currentText())
         self.refresh_badges()
         self._atualizar_aviso()
-        self._timer_novas.stop()
 
     def definir_exemplos(self, exemplos: list | None) -> None:
         self.exemplos.definir(exemplos)
@@ -682,11 +794,37 @@ class RequestEditor(QWidget):
     def marcar_sujo(self, sujo: bool) -> None:
         self.save_btn.setEnabled(sujo)
         self.save_btn.setText("Salvar" if sujo else "Salvo")
+        self.save_btn.setVisible(sujo or not self._estreito)
+
+    def resizeEvent(self, evento):  # noqa: N802
+        """Em janela estreita a url e que ganha o espaco.
+
+        Metodo, Copiar, codigo, Enviar e Salvo tem largura fixa, entao numa janela de
+        novecentos pixels a url era a unica coisa que encolhia e sobrava {{brasilApi}}.
+        Estreito, o Copiar fica so com o icone e o Salvo apagado sai: o ponto da aba ja
+        diz se ha alteracao.
+        """
+        super().resizeEvent(evento)
+        estreito = self.width() < 760
+        if estreito == self._estreito:
+            return
+        self._estreito = estreito
+        self.copy_btn.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonIconOnly if estreito
+            else Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.copy_btn.setMinimumWidth(0 if estreito else self._largura_copiar)
+        self.save_btn.setVisible(self.save_btn.isEnabled() or not estreito)
 
     def focus_url(self) -> None:
         self.url.setFocus()
         self.url.selectAll()
 
     def set_sending(self, sending: bool) -> None:
-        self.send_btn.setEnabled(not sending)
-        self.send_btn.setText("Enviando" if sending else "Enviar")
+        self._enviando = sending
+        self._atalho_cancelar.setEnabled(sending)
+        self.send_btn.setEnabled(True)
+        self.send_btn.setText("Cancelar" if sending else "Enviar")
+        self.send_btn.setToolTip(
+            "Enviando. Clique ou Esc pra abandonar a espera" if sending else "Ctrl+Enter"
+        )

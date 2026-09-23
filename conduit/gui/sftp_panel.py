@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from ..core import sftp
 from . import theme
+from .widgets import conta
 
 PAPEL_ID = Qt.ItemDataRole.UserRole
 
@@ -166,8 +167,8 @@ class SftpPanel(QWidget):
             return
         abertos = len(self.ligados)
         self.rodape.setText(
-            f"{len(perfis)} servidores"
-            + (f", {abertos} conectados" if abertos else ". Duplo clique conecta.")
+            conta(len(perfis), "servidor", "servidores")
+            + (f", {conta(abertos, 'conectado', 'conectados')}" if abertos else ". Duplo clique conecta.")
         )
 
     def _abrir(self, item: QListWidgetItem) -> None:

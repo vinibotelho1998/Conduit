@@ -504,6 +504,7 @@ class ExportDialog(QDialog):
         self.setWindowTitle("Exportar")
         self.resize(820, 700)
         self.destino: Path | None = None
+        self._destino_pasta = False
         self.formato = "postman"
 
         raiz = QVBoxLayout(self)
@@ -618,9 +619,19 @@ class ExportDialog(QDialog):
         self.formato = chave
         for atual, cartao in self.cartoes.items():
             cartao.marcar(atual == chave)
+        self._zerar_destino()
+        self._atualizar_contagem()
+
+    def _zerar_destino(self) -> None:
         self.destino = None
         self.caminho_label.setText("nenhum destino escolhido")
+        theme.estilizar(self.caminho_label, lambda: "")
         self.botoes.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+
+    def _pede_pasta(self) -> bool:
+        return self.formato == "bruno" or (
+            self.formato == "postman" and len(self.escolhidas()) > 1
+        )
 
     def _marcar_todas(self) -> None:
         alvo = (
@@ -637,7 +648,16 @@ class ExportDialog(QDialog):
     def _atualizar_contagem(self, *_):
         escolhidas = self.escolhidas()
         requests = sum(self._contar(c) for c in escolhidas)
-        self.contagem.setText(f"{len(escolhidas)} de {self.lista.count()}, {requests} requests")
+        texto = f"{len(escolhidas)} de {self.lista.count()}, {requests} requests"
+        ambientes = len(self.tree.get("environments") or [])
+        if ambientes and getattr(self, "formato", "") in ("postman", "insomnia", "bruno"):
+            texto += f", e {ambientes} ambiente{'s' if ambientes != 1 else ''}"
+        self.contagem.setText(texto)
+        # Marcar ou desmarcar pode trocar o destino de arquivo pra pasta. O caminho
+        # escolhido antes virava pasta chamada colecao.json, ou estourava PermissionError
+        # tentando gravar um arquivo por cima de uma pasta.
+        if getattr(self, "destino", None) is not None and self._pede_pasta() != self._destino_pasta:
+            self._zerar_destino()
 
     def _aviso_segredo(self) -> None:
         if self.com_segredo.isChecked():
@@ -652,9 +672,7 @@ class ExportDialog(QDialog):
             )
 
     def escolher_destino(self) -> None:
-        pasta = self.formato == "bruno" or (
-            self.formato == "postman" and len(self.escolhidas()) > 1
-        )
+        pasta = self._pede_pasta()
         if pasta:
             caminho = QFileDialog.getExistingDirectory(self, "Pasta de destino")
         else:
@@ -666,6 +684,7 @@ class ExportDialog(QDialog):
             caminho, _ = QFileDialog.getSaveFileName(self, "Salvar como", sugestao)
         if caminho:
             self.destino = Path(caminho)
+            self._destino_pasta = pasta
             self.caminho_label.setText(caminho)
             theme.estilizar(self.caminho_label, lambda: f"color: {theme.TEXT};")
             self.botoes.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)

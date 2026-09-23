@@ -34,13 +34,50 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import workspaces as ws
+from ..seed import EXAMPLES_ID
 from . import icons, theme, tokens
 from .request_editor import mono
+from .widgets import conta
 
 PAPEL_ID = Qt.ItemDataRole.UserRole
 
 # Os nomes que aparecem no menu de cor, na mesma ordem de ws.COLORS.
 NOMES_DE_COR = ["cinza", "verde", "laranja", "azul", "vermelho", "turquesa"]
+
+
+def criar_workspace(pai, nome: str) -> dict | None:
+    """Cria o workspace, e pergunta antes quando o nome e o de um que saiu da lista.
+
+    Tirar da lista promete que da pra voltar depois, e o caminho de volta e criar com o
+    mesmo nome, coisa que nenhuma tela contava: o conteudo antigo era adotado calado, e
+    nao havia jeito de criar um vazio com aquele nome.
+    """
+    wid = ws.slug(nome)
+    registrados = {w["id"] for w in ws.list_workspaces()["workspaces"]}
+    outro_id = None
+    if wid not in registrados and ws.ja_existe_no_disco(wid):
+        caixa = QMessageBox(pai)
+        caixa.setWindowTitle("Novo workspace")
+        caixa.setText(f"Existe um workspace {nome} fora da lista.")
+        caixa.setInformativeText(
+            "Trazer de volta abre ele com o que tinha. Criar outro vazio deixa aquela "
+            "pasta como esta e comeca um workspace novo."
+        )
+        trazer = caixa.addButton("Trazer de volta", QMessageBox.ButtonRole.AcceptRole)
+        vazio = caixa.addButton("Criar outro vazio", QMessageBox.ButtonRole.ActionRole)
+        caixa.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        caixa.setDefaultButton(trazer)
+        caixa.exec()
+        clicado = caixa.clickedButton()
+        if clicado is vazio:
+            outro_id = ws.id_livre(nome)
+        elif clicado is not trazer:
+            return None
+    try:
+        return ws.create_workspace(nome, wid=outro_id)
+    except ValueError as exc:
+        QMessageBox.warning(pai, "Novo workspace", str(exc))
+        return None
 
 
 def menu_de_cores(pai, atual: str, escolher) -> QMenu:
@@ -168,6 +205,7 @@ class WorkspacesDialog(QDialog):
         )
         self.lista.itemDoubleClicked.connect(lambda *_: self.usar())
         self.lista.itemSelectionChanged.connect(self._ajustar_botoes)
+        self.lista.currentItemChanged.connect(lambda *_: self._ajustar_botoes())
         self.lista.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.lista.customContextMenuRequested.connect(self._menu)
         raiz.addWidget(self.lista, 1)
@@ -291,9 +329,6 @@ class WorkspacesDialog(QDialog):
         if not cols and not requests:
             return "ainda vazio"
 
-        def conta(quantos: int, um: str, muitos: str) -> str:
-            return f"{quantos} {um if quantos == 1 else muitos}"
-
         partes = [conta(cols, "collection", "collections"), conta(requests, "request", "requests")]
         if pastas:
             partes.insert(1, conta(pastas, "pasta", "pastas"))
@@ -329,12 +364,9 @@ class WorkspacesDialog(QDialog):
         nome = (nome or "").strip()
         if not ok or not nome:
             return
-        try:
-            entrada = ws.create_workspace(nome)
-        except ValueError as exc:
-            QMessageBox.warning(self, "Novo workspace", str(exc))
-            return
-        self.recarregar(entrada["id"])
+        entrada = criar_workspace(self, nome)
+        if entrada is not None:
+            self.recarregar(entrada["id"])
 
     def renomear(self) -> None:
         entrada = self.selecionado()
@@ -417,7 +449,8 @@ class WorkspacesDialog(QDialog):
         caixa.setText(f"Excluir o workspace {entrada.get('name')}?")
         caixa.setInformativeText(
             f"{self._contar(entrada)}\n\n"
-            "Tirar da lista deixa a pasta intacta no disco, da pra voltar depois.\n"
+            "Tirar da lista deixa a pasta intacta no disco. Pra voltar, crie um "
+            f"workspace chamado {entrada['id']} e escolha Trazer de volta.\n"
             "Mover pra lixeira tira a pasta do lugar, mas nao apaga: ela vai pra "
             "lixeira do Conduit e pode ser recuperada na mao."
         )
@@ -456,6 +489,9 @@ class WorkspacesDialog(QDialog):
             )
             self.recarregar()
             return
+        if entrada["id"] == EXAMPLES_ID:
+            # quem tira os exemplos da lista nao quer ver eles de volta na proxima abertura
+            ws.write_preferences(exemplosDispensados=True)
         if resultado["lixeira"]:
             QMessageBox.information(
                 self, "Excluido", f"A pasta foi movida para\n{resultado['lixeira']}"

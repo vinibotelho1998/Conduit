@@ -164,7 +164,9 @@ class CertsDialog(QDialog):
         barra.addStretch(1)
 
         self.btn_remover = QPushButton("Remover")
-        theme.estilizar(self.btn_remover, lambda: f"QPushButton {{ color: {theme.ERR}; }}")
+        # o botao de perigo do tema, que tem cara de desligado quando desliga: a folha
+        # propria deixava o Remover vermelho vivo com a tabela vazia
+        self.btn_remover.setObjectName("perigo")
         self.btn_remover.clicked.connect(self.remover)
         barra.addWidget(self.btn_remover)
         raiz.addLayout(barra)

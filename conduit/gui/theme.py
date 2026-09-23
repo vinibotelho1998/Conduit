@@ -131,6 +131,21 @@ MONO = FAMILIA_MONO
 ABREVIACAO_METODO = {"DELETE": "DEL", "OPTIONS": "OPT"}
 
 
+def fonte_interface():
+    """A fonte do app inteiro, dada pelo QApplication e nao pela folha de estilo.
+
+    Na folha, a regra QWidget com font-family ganhava de todo setFont: url, corpo,
+    Pretty e Raw da resposta, console e codigo gerado saiam em Segoe UI, e quem lia um
+    token confundia l com 1 e O com 0. Como fonte do app, ela vale onde ninguem pediu
+    outra, e a mono de cada campo passa a valer.
+    """
+    from PySide6.QtGui import QFont
+
+    fonte = QFont(FAMILIA.split(",")[0].strip())
+    fonte.setPointSizeF(FONTE["corpo"])
+    return fonte
+
+
 def _espalhar() -> None:
     """Reescreve os nomes antigos a partir da paleta ativa."""
     g = globals()
@@ -214,8 +229,6 @@ def _qss() -> str:
 QWidget {{
     background: {p["fundo"]};
     color: {p["texto"]};
-    font-family: "{FAMILIA.split(",")[0]}";
-    font-size: {FONTE["corpo"]}pt;
 }}
 QWidget:disabled {{ color: {p["texto_apagado"]}; }}
 
@@ -358,6 +371,9 @@ QToolButton#acaoBarra::menu-button {{
     subcontrol-origin: border; subcontrol-position: right center;
 }}
 QToolButton#acaoBarra::menu-arrow {{ image: url(__CHEVRON__); width: 10px; height: 10px; }}
+/* botao so de icone, como o de gerar codigo: com o padding lateral do de texto, o quadro
+   de 38 sobrava com uns 8 pixels de miolo e o Qt encolhia o icone pra quase nada */
+QToolButton#acaoBarra[soIcone="true"] {{ padding: 0; }}
 
 /* ------------------------------------------------------------------------ botoes */
 
@@ -420,6 +436,11 @@ QPushButton#perigo {{
 QPushButton#perigo:hover {{ background: {alfa(p["erro"], 0.14)}; border-color: {p["erro"]}; }}
 QPushButton#perigo:pressed {{ background: {alfa(p["erro"], 0.26)}; }}
 QPushButton#perigo:focus {{ border-color: {p["erro"]}; }}
+/* sem esta regra o id ganhava da regra generica de desligado, e o Excluir continuava
+   vermelho e com cara de clicavel ao lado de Usar e Editar ja apagados */
+QPushButton#perigo:disabled {{
+    background: transparent; border-color: {p["borda"]}; color: {p["texto_apagado"]};
+}}
 
 QPushButton#flat, QPushButton#link {{
     background: transparent; border: 1px solid transparent; color: {p["marca"]};
@@ -794,6 +815,7 @@ def aplicar(app, nome: str | None = None, densidade: str | None = None) -> None:
     _remontar_folhas()
 
     if app is not None:
+        app.setFont(fonte_interface())
         app.setPalette(paleta_qt())
         app.setStyleSheet(folha())
         for janela in app.topLevelWidgets():

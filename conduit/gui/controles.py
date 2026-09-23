@@ -58,7 +58,9 @@ class Marcador(QCheckBox):
             pintor.setBrush(fundo)
             pintor.drawRoundedRect(caixa, RAIO_CAIXA, RAIO_CAIXA)
 
-            _traco(pintor, QColor("#0c1420"), 1.9)
+            # a tinta que o tema da pra texto sobre a marca: o escuro fixo dava 3.5 de
+            # contraste no tema claro
+            _traco(pintor, QColor(theme.cor("marca_tinta")), 1.9)
             caminho = QPainterPath()
             caminho.moveTo(QPointF(x + 3.7, y + 7.8))
             caminho.lineTo(QPointF(x + 6.2, y + 10.4))
@@ -66,7 +68,9 @@ class Marcador(QCheckBox):
             pintor.drawPath(caminho)
             return
 
-        borda = QPen(QColor(theme.FAINT if sob else theme.BORDER))
+        # A borda da linha de grade sumia no fundo, com contraste de 1.3: a coluna
+        # SECRETO, que e o controle de seguranca da aba do ambiente, parecia vazia.
+        borda = QPen(QColor(theme.cor("texto_fraco") if sob else theme.cor("texto_apagado")))
         borda.setWidthF(1.3)
         pintor.setPen(borda)
         pintor.setBrush(QColor(theme.PANEL2))

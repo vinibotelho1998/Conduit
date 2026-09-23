@@ -197,6 +197,8 @@ class KvTable(QWidget):
     """Grade de pares. Com with_secret, ganha a coluna de marcar valor como secreto."""
 
     changed = Signal()
+    # a linha que o X apagou e onde ela estava, pra quem quiser oferecer desfazer
+    linha_removida = Signal(object, int)
 
     def focar(self, nome: str) -> bool:
         """Poe o cursor no valor da linha com esse nome, ja em modo de edicao."""
@@ -267,6 +269,7 @@ class KvTable(QWidget):
         self.table.setColumnWidth(1, 260)
         self.table.setColumnWidth(self.col_del, 34)
         self.table.itemChanged.connect(self._on_item_changed)
+        self.table.cellClicked.connect(self._clique_na_fantasma)
         self.delegate = DicaDelegate(
             {1: labels[0].lower(), 2: labels[1].lower()}, self.table, variaveis
         )
@@ -282,6 +285,14 @@ class KvTable(QWidget):
 
     def repintar(self) -> None:
         self.table.viewport().update()
+
+    def _clique_na_fantasma(self, linha: int, coluna: int) -> None:
+        """A linha vazia do fim pinta header e valor chamando pra digitar, e um clique ja
+        abre a edicao. Nas linhas com dado continua o gatilho de antes, que protege contra
+        apagar sem querer."""
+        item = self.table.item(linha, coluna)
+        if item is not None and coluna in (1, 2) and item.data(Qt.ItemDataRole.UserRole):
+            self.table.editItem(item)
 
     def reload(self) -> None:
         self._loading = True
@@ -358,10 +369,15 @@ class KvTable(QWidget):
         self.changed.emit()
 
     def _remove(self, data: dict) -> None:
-        if data in self.rows:
-            self.rows.remove(data)
+        posicao = next((i for i, linha in enumerate(self.rows) if linha is data), None)
+        if posicao is None and data in self.rows:
+            posicao = self.rows.index(data)
+        if posicao is not None:
+            del self.rows[posicao]
         self.reload()
         self.changed.emit()
+        if posicao is not None:
+            self.linha_removida.emit(data, posicao)
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         if self._loading:

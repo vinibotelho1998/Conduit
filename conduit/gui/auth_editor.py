@@ -20,6 +20,17 @@ from .highlight import CodeHighlighter, VarTooltip
 from .request_editor import UrlEdit, mono
 
 
+# Os campos que cada tipo usa. O resto fica no campo da tela, pra quem volta de tipo, mas
+# nao vai pro arquivo: trocar de Bearer pra Basic deixava o token antigo gravado no YAML
+# versionado, junto da senha nova.
+CAMPOS_DO_TIPO = {
+    "bearer": ("token",),
+    "basic": ("username", "password"),
+    "apikey": ("key", "value"),
+    "oauth2": ("tokenUrl", "clientId", "clientSecret", "scope", "audience"),
+}
+
+
 class CampoVar(UrlEdit):
     """Campo de uma linha com realce de {{variavel}} e o cartao no mouse."""
 
@@ -217,9 +228,10 @@ class AuthEditor(QWidget):
     def _guardar(self) -> None:
         config = self.dono.setdefault("auth", {})
         config["type"] = self.combo.currentData()
+        validos = CAMPOS_DO_TIPO.get(config["type"], ())
         for nome, campo in self.campos.items():
             texto = campo.toPlainText()
-            if texto:
+            if texto and nome in validos:
                 config[nome] = texto
             else:
                 config.pop(nome, None)

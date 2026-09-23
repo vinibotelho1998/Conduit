@@ -293,13 +293,6 @@ class AbaBar(QTabBar):
             return
         super().mouseReleaseEvent(evento)
 
-    def mouseDoubleClickEvent(self, evento):  # noqa: N802
-        index = self.tabAt(evento.position().toPoint())
-        if index >= 0 and self._info(index)[2]:
-            self.salvar_pedido.emit(index)
-            return
-        super().mouseDoubleClickEvent(evento)
-
     def contextMenuEvent(self, evento):  # noqa: N802
         index = self.tabAt(evento.pos())
         if index < 0:

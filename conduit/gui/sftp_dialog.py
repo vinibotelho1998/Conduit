@@ -33,13 +33,16 @@ from .request_editor import mono
 class PerfilDialog(QDialog):
     """Cria ou edita um servidor. Devolve o perfil e a senha digitada, se houver."""
 
-    def __init__(self, perfil: sftp.Perfil | None, parent=None):
+    def __init__(self, perfil: sftp.Perfil | None, parent=None, guardada: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Servidor SFTP" if perfil else "Novo servidor SFTP")
         self.setMinimumWidth(520)
         self.perfil = perfil or sftp.Perfil(id=sftp.novo_id())
+        # None deixa o cofre como esta, texto vazio apaga, texto grava
         self.senha_nova: str | None = None
         self.frase_nova: str | None = None
+        self._guardada = guardada
+        self._esquecer = False
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(18, 16, 18, 14)
@@ -61,6 +64,9 @@ class PerfilDialog(QDialog):
         self.porta.setRange(1, 65535)
         self.porta.setValue(self.perfil.porta or sftp.PORTA_PADRAO)
         self.porta.setFixedWidth(84)
+        # a folha do tema nao desenha as setas do QSpinBox, e sobravam dois retangulos
+        # vazios; porta se digita, e a seta do teclado continua valendo
+        self.porta.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.porta.setToolTip("Porta SSH. O padrao e 22.")
         linha_host.addWidget(self.host, 1)
         linha_host.addWidget(QLabel("porta"))
@@ -80,9 +86,19 @@ class PerfilDialog(QDialog):
 
         self.senha = QLineEdit()
         self.senha.setEchoMode(QLineEdit.EchoMode.Password)
-        self.senha.setPlaceholderText("deixe em branco pra perguntar a cada conexao")
         self.rotulo_senha = QLabel("Senha")
-        form.addRow(self.rotulo_senha, self.senha)
+        # Com credencial ja no cofre, a dica antiga mandava deixar em branco pra
+        # perguntar a cada conexao, e deixar em branco mantinha a guardada.
+        linha_senha = QHBoxLayout()
+        linha_senha.setSpacing(6)
+        linha_senha.addWidget(self.senha, 1)
+        self.btn_esquecer = QPushButton("Esquecer a guardada")
+        self.btn_esquecer.setToolTip("Apaga do cofre a senha e a frase guardadas deste servidor")
+        self.btn_esquecer.clicked.connect(self._esquecer_guardada)
+        self.btn_esquecer.setVisible(guardada)
+        linha_senha.addWidget(self.btn_esquecer)
+        form.addRow(self.rotulo_senha, linha_senha)
+        self._dica_senha()
 
         self.caixa_chave = QWidget()
         linha_chave = QHBoxLayout(self.caixa_chave)
@@ -137,6 +153,18 @@ class PerfilDialog(QDialog):
         self.chave.textChanged.connect(self._conferir)
         self._trocar_modo()
 
+    def _dica_senha(self) -> None:
+        if self._guardada and not self._esquecer:
+            self.senha.setPlaceholderText("guardada no cofre, digite pra trocar")
+        else:
+            self.senha.setPlaceholderText("deixe em branco pra perguntar a cada conexao")
+
+    def _esquecer_guardada(self) -> None:
+        self._esquecer = True
+        self.btn_esquecer.setEnabled(False)
+        self.btn_esquecer.setText("sera esquecida ao salvar")
+        self._dica_senha()
+
     def _trocar_modo(self) -> None:
         modo = self.modo.currentData()
         for alvo in (self.rotulo_senha, self.senha):
@@ -144,6 +172,7 @@ class PerfilDialog(QDialog):
         for alvo in (self.rotulo_chave, self.caixa_chave, self.rotulo_frase, self.frase):
             alvo.setVisible(modo == "chave")
         self.guardar.setVisible(modo in ("senha", "chave"))
+        self.btn_esquecer.setVisible(self._guardada and modo == "senha")
         self._conferir()
 
     def _escolher_chave(self) -> None:
@@ -176,6 +205,11 @@ class PerfilDialog(QDialog):
         if self._conferir():
             return
         self.perfil = self._montar()
+        if self._esquecer or not self.guardar.isChecked():
+            # desmarcar Guardar tambem esquece: antes a senha antiga seguia no cofre e
+            # continuava sendo usada em toda conexao
+            self.senha_nova = ""
+            self.frase_nova = ""
         if self.guardar.isChecked():
             if self.perfil.auth == "senha" and self.senha.text():
                 self.senha_nova = self.senha.text()
@@ -184,8 +218,8 @@ class PerfilDialog(QDialog):
         self.accept()
 
     @staticmethod
-    def pedir(perfil: sftp.Perfil | None, parent=None):
-        dialogo = PerfilDialog(perfil, parent)
+    def pedir(perfil: sftp.Perfil | None, parent=None, guardada: bool = False):
+        dialogo = PerfilDialog(perfil, parent, guardada)
         if dialogo.exec() != QDialog.DialogCode.Accepted:
             return None
         return dialogo

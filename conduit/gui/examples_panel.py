@@ -40,7 +40,7 @@ class ExamplesPanel(QWidget):
 
         self.vazio = QLabel(
             "Nenhum exemplo salvo ainda.\n\n"
-            "Envie o request e clique em exemplo, no canto do painel de resposta.\n"
+            "Envie o request e clique no marcador, o ultimo icone a direita na barra da resposta.\n"
             "O exemplo fica dentro do request e vai junto quando a collection for compartilhada."
         )
         self.vazio.setObjectName("hint")

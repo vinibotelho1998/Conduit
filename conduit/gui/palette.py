@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QStyle,
+    QStyledItemDelegate,
     QVBoxLayout,
 )
 
-from . import theme
-from .request_editor import mono
+from . import icons, theme
 
 
 @dataclass
@@ -67,6 +68,74 @@ def fuzzy(consulta: str, texto: str) -> int | None:
     return pontos
 
 
+class LinhaPaleta(QStyledItemDelegate):
+    """Desenha cada linha da paleta.
+
+    Nome e atalho iam no mesmo texto, separados por quebra de linha, numa linha da
+    altura da arvore: o atalho, que era o motivo da segunda linha, nunca aparecia, e o
+    nome saia cortado com reticencias. Aqui o comando tem o atalho alinhado a direita, e
+    o request tem a pilula do metodo, o nome e, embaixo, o caminho e a url mais apagados.
+    """
+
+    def sizeHint(self, option, index):  # noqa: N802
+        item = index.data(Qt.ItemDataRole.UserRole)
+        altura = 46 if item is not None and item.badge else 34
+        return QSize(max(1, option.rect.width()), altura)
+
+    def paint(self, painter, option, index):
+        item = index.data(Qt.ItemDataRole.UserRole)
+        if item is None:
+            super().paint(painter, option, index)
+            return
+
+        painter.save()
+        fundo = option.rect.adjusted(2, 1, -2, -1)
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.RAISE))
+            painter.drawRoundedRect(fundo, 6, 6)
+        elif option.state & QStyle.StateFlag.State_MouseOver:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(theme.cor("hover")))
+            painter.drawRoundedRect(fundo, 6, 6)
+
+        area = option.rect.adjusted(12, 0, -12, 0)
+        fonte = QFont(option.font)
+        painter.setFont(fonte)
+        metricas = painter.fontMetrics()
+
+        if item.badge:
+            pilula = icons.method_icon(item.badge.upper()).pixmap(icons.LARGURA, icons.ALTURA)
+            topo = area.top() + 5
+            # a pilula do metodo e desenhada encostada a direita da faixa de 52
+            painter.drawPixmap(area.left() - 6, topo, pilula)
+            x = area.left() + icons.LARGURA + 2
+            painter.setPen(QColor(theme.TEXT))
+            nome = metricas.elidedText(item.label, Qt.TextElideMode.ElideRight, area.right() - x)
+            painter.drawText(QRect(x, topo, area.right() - x, icons.ALTURA),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, nome)
+            if item.sub:
+                menor = QFont(option.font)
+                menor.setPointSizeF(max(7.5, option.font.pointSizeF() - 1.5))
+                painter.setFont(menor)
+                sub = painter.fontMetrics()
+                texto = sub.elidedText(item.sub.strip(), Qt.TextElideMode.ElideMiddle, area.right() - x)
+                painter.setPen(QColor(theme.FAINT))
+                painter.drawText(QRect(x, topo + icons.ALTURA + 1, area.right() - x, sub.height()),
+                                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, texto)
+        else:
+            atalho = item.sub or ""
+            largura_atalho = metricas.horizontalAdvance(atalho) + (16 if atalho else 0)
+            painter.setPen(QColor(theme.TEXT))
+            nome = metricas.elidedText(item.label, Qt.TextElideMode.ElideRight,
+                                       max(0, area.width() - largura_atalho))
+            painter.drawText(area, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, nome)
+            if atalho:
+                painter.setPen(QColor(theme.FAINT))
+                painter.drawText(area, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, atalho)
+        painter.restore()
+
+
 class Palette(QDialog):
     def __init__(self, itens: list[PaletteItem], titulo: str, parent=None):
         super().__init__(parent)
@@ -103,6 +172,8 @@ class Palette(QDialog):
             f"QListWidget::item {{ padding: 6px 10px; border-radius: 6px; }}"
             f"QListWidget::item:selected {{ background: {theme.RAISE}; }}",
         )
+        self.lista.setItemDelegate(LinhaPaleta(self.lista))
+        self.lista.setMouseTracking(True)
         self.lista.itemActivated.connect(lambda _: self._aceitar())
         self.lista.itemDoubleClicked.connect(lambda _: self._aceitar())
         layout.addWidget(self.lista, 1)
@@ -132,19 +203,12 @@ class Palette(QDialog):
 
         self.lista.clear()
         for item in pontuados[:200]:
-            linha = QListWidgetItem()
-            texto = item.label
-            if item.badge:
-                texto = f"{item.badge:<7}{texto}"
-            if item.sub:
-                texto = f"{texto}\n{item.sub}"
-            linha.setText(texto)
+            # o texto fica pra leitor de tela e pra quem procura na lista; o desenho e do
+            # LinhaPaleta
+            linha = QListWidgetItem(" ".join(p for p in (item.badge, item.label, item.sub) if p))
             linha.setData(Qt.ItemDataRole.UserRole, item)
-            if item.badge_color:
-                linha.setForeground(QColor(theme.TEXT))
             if item.hint:
                 linha.setToolTip(item.hint)
-            linha.setFont(mono(8) if item.badge else linha.font())
             self.lista.addItem(linha)
 
         if self.lista.count():

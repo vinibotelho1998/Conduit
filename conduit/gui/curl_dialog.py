@@ -118,15 +118,24 @@ class CurlDialog(QDialog):
             corpo = dados.body["raw"]
             linhas.append("  " + (corpo if len(corpo) <= 600 else corpo[:600] + " …"))
         if dados.settings:
+            # em frase, e nao o dicionario do Python cru; o destino e a aba Ajustes
+            frases = []
+            if dados.settings.get("verifyTls") is False:
+                frases.append("nao verifica o certificado do servidor, por causa do -k")
+            if dados.settings.get("timeout"):
+                frases.append(f"tempo limite de {dados.settings['timeout']} s")
+            if dados.settings.get("followRedirects"):
+                frases.append("segue redirecionamento")
             linhas.append("")
-            linhas.append(f"ajustes: {dados.settings}")
+            linhas.append("ajustes, na aba Ajustes do request:")
+            linhas += [f"  {frase}" for frase in frases]
 
         self.previa.setPlainText("\n".join(linhas))
         self.botoes.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
 
         if dados.ignorados:
             self.aviso_erro.setText(
-                "nao entendi e deixei de fora: " + ", ".join(dados.ignorados)
+                "ficou de fora ou mudou: " + ", ".join(dados.ignorados)
             )
             theme.estilizar(self.aviso_erro, lambda: f"color: {theme.WARN};")
         else:

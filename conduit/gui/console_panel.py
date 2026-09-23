@@ -27,15 +27,23 @@ from PySide6.QtWidgets import (
 from . import theme
 from .request_editor import mono
 
-CORES = {
-    "info": theme.DIM,
-    "envio": theme.ACCENT,
-    "ok": theme.OK,
-    "aviso": theme.WARN,
-    "erro": theme.ERR,
-}
-
 LIMITE_LINHAS = 2000
+
+
+def cor_do_nivel(nivel: str) -> str:
+    """Pela paleta de agora, e nao guardada na importacao do modulo.
+
+    O dicionario pronto no topo do arquivo era montado antes de o tema escolhido ser
+    aplicado: quem usava o claro via ok, aviso e info com a cor do escuro, quase sem
+    contraste sobre o branco.
+    """
+    return {
+        "info": theme.DIM,
+        "envio": theme.ACCENT,
+        "ok": theme.OK,
+        "aviso": theme.WARN,
+        "erro": theme.ERR,
+    }.get(nivel, theme.DIM)
 
 
 class ConsolePanel(QWidget):
@@ -91,6 +99,9 @@ class ConsolePanel(QWidget):
         self.texto.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.texto.setPlaceholderText("nada aconteceu ainda nesta sessao")
         raiz.addWidget(self.texto, 1)
+        # a cor fica dentro de cada linha ja escrita: sem redesenhar na troca de tema, o
+        # texto claro do escuro sumia no fundo branco do claro
+        theme.ao_trocar_widget(self, lambda painel: painel._redesenhar())
 
 
     def registrar(self, mensagem: str, nivel: str = "info") -> None:
@@ -115,7 +126,7 @@ class ConsolePanel(QWidget):
         cursor.setCharFormat(formato)
         cursor.insertText(f"{hora}  ")
 
-        formato.setForeground(QColor(CORES.get(nivel, theme.DIM)))
+        formato.setForeground(QColor(cor_do_nivel(nivel)))
         cursor.setCharFormat(formato)
         cursor.insertText(f"{nivel:<6}")
 

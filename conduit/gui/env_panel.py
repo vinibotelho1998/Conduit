@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import icons, theme
+from .widgets import conta
 
 PAPEL_ID = Qt.ItemDataRole.UserRole
 GLOBAIS = "__globais__"
@@ -151,6 +152,8 @@ class EnvPanel(QWidget):
         )
         self.lista.itemClicked.connect(self._clicou)
         self.lista.itemSelectionChanged.connect(self._ajustar_botoes)
+        # a lista abre com um item corrente sem selecao, e os botoes ficavam apagados
+        self.lista.currentItemChanged.connect(lambda *_: self._ajustar_botoes())
         self.lista.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.lista.customContextMenuRequested.connect(self._menu)
         raiz.addWidget(self.lista, 1)
@@ -227,9 +230,9 @@ class EnvPanel(QWidget):
         quantos = len([v for v in valores or [] if v.get("key")])
         secretas = len([v for v in valores or [] if v.get("secret")])
         vazias = len([v for v in valores or [] if v.get("key") and not v.get("value")])
-        partes = [f"{quantos} variavel" if quantos == 1 else f"{quantos} variaveis"]
+        partes = [conta(quantos, "variavel", "variaveis")]
         if secretas:
-            partes.append(f"{secretas} secretas")
+            partes.append(conta(secretas, "secreta", "secretas"))
         if vazias:
             partes.append(f"{vazias} sem valor")
         return "  ·  ".join(partes)

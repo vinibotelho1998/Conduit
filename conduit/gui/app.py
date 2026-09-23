@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
-from PySide6.QtCore import QThreadPool
+from PySide6.QtCore import QLibraryInfo, QLocale, QThreadPool, QTranslator
 from PySide6.QtWidgets import QApplication
 
 from .. import APP_ID, APP_NAME, __version__
@@ -70,6 +71,31 @@ def _registrar_tombo(tipo, valor, rastro) -> None:
     caixa.exec()
 
 
+def instalar_traducao(app) -> QTranslator | None:
+    """Poe em portugues o que o proprio Qt escreve: Sim, Nao, Cancelar, Fechar, Copiar.
+
+    Sem isso toda confirmacao saia com o texto do app em portugues e os botoes em
+    ingles, e o menu do botao direito de todo campo dizia Undo, Cut, Copy e Paste. O
+    executavel ja leva so as traducoes _pt; fora dele, elas vem da instalacao do PySide6.
+    """
+    import PySide6
+
+    lugares = [
+        QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath),
+        str(Path(PySide6.__file__).parent / "translations"),
+    ]
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        lugares.insert(0, str(base / "PySide6" / "translations"))
+    tradutor = QTranslator(app)
+    for lugar in lugares:
+        if tradutor.load(QLocale(QLocale.Language.Portuguese, QLocale.Country.Brazil),
+                         "qtbase", "_", lugar):
+            app.installTranslator(tradutor)
+            return tradutor
+    return None
+
+
 def main() -> int:
     if sys.platform == "win32":
         import ctypes
@@ -90,7 +116,9 @@ def main() -> int:
     app.setOrganizationName("Conduit")
     app.setApplicationVersion(__version__)
     app.setStyle("Fusion")
+    instalar_traducao(app)
     theme.aplicar(None, preferencias.get("tema"), preferencias.get("densidade"))
+    app.setFont(theme.fonte_interface())
     app.setPalette(theme.paleta_qt())
     app.setStyleSheet(theme.folha())
     app.setWindowIcon(app_icon())

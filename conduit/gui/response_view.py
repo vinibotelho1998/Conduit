@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
+    QIcon,
     QPainter,
     QGuiApplication,
     QImage,
@@ -38,11 +40,42 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core import engine
 from . import icons, theme, tokens
 from .highlight import CodeHighlighter, guess_language
 from .numeros import EditorNumerado
 from .request_editor import mono
-from .widgets import BadgeTabs, cabecalho_a_esquerda, dica_de_fora, so_a_pagina_aberta
+from .widgets import (
+    BadgeTabs,
+    Elastico,
+    Faixa,
+    cabecalho_a_esquerda,
+    dica_de_fora,
+    so_a_pagina_aberta,
+)
+
+# Acima disto o corpo aparece como veio, sem reformatar nem colorir: um JSON de 1 MB
+# prendia a janela inteira por 4 segundos, e um de 5 MB por quase 20, sem aviso nenhum.
+LIMITE_REALCE = 512 * 1024
+# Acima disto so o comeco vai pra tela. O corpo inteiro continua no Salvar.
+LIMITE_TELA = 2 * 1024 * 1024
+
+# tipo que nao se le como texto: no Pretty ele virava uma parede de lixo
+BINARIOS = ("image/", "audio/", "video/", "font/", "application/pdf", "application/zip",
+            "application/octet-stream", "application/x-", "application/vnd.ms-excel",
+            "application/vnd.openxmlformats")
+# Marca de texto que vale mesmo com o prefixo de binario: o token do OAuth vem em
+# application/x-www-form-urlencoded, a api da AWS responde application/x-amz-json-1.1 e
+# o svg e image/svg+xml. Sem ela, essas respostas viravam o aviso de binario.
+TEXTUAIS = ("json", "xml", "text", "javascript", "urlencoded", "yaml", "csv", "html")
+
+# filename="nota.pdf" ou filename*=UTF-8''nota.pdf, do Content-Disposition
+RE_NOME_ARQUIVO = re.compile(r"""filename\*?=(?:[\w-]+'[\w-]*')?"?([^";]+)"?""", re.I)
+
+
+def eh_binario(content_type: str) -> bool:
+    tipo = (content_type or "").lower()
+    return tipo.startswith(BINARIOS) and not any(marca in tipo for marca in TEXTUAIS)
 
 
 def human_bytes(n: int | None) -> str:
@@ -79,6 +112,19 @@ def header_value(headers, nome: str) -> str:
     return ""
 
 
+def _com_apagado(desenhar) -> QIcon:
+    """O icone e, pro botao desligado, o mesmo desenho na cor de controle desligado.
+
+    O cinza que o Qt gera sozinho pro desligado e quase o mesmo tom do icone claro, e
+    sem resposta nenhuma os seis botoes pareciam prontos pra uso.
+    """
+    icone = QIcon(desenhar())
+    apagado = desenhar(theme.cor("texto_apagado"))
+    for tamanho in apagado.availableSizes():
+        icone.addPixmap(apagado.pixmap(tamanho), QIcon.Mode.Disabled)
+    return icone
+
+
 def flat_button(texto: str, dica: str = "", icone=None) -> QToolButton:
     """Acao da barra da resposta. Com icone, o texto vira so o tooltip.
 
@@ -90,63 +136,12 @@ def flat_button(texto: str, dica: str = "", icone=None) -> QToolButton:
     if icone is not None:
         btn.setIconSize(QSize(18, 18))
         btn.setAutoRaise(True)
-        theme.ao_trocar_widget(btn, lambda alvo, desenhar=icone: alvo.setIcon(desenhar()))
+        theme.ao_trocar_widget(btn, lambda alvo, desenhar=icone: alvo.setIcon(_com_apagado(desenhar)))
     else:
         btn.setText(texto)
     btn.setToolTip(dica or texto)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     return btn
-
-
-class Elastico(QLabel):
-    """Rotulo que encolhe ate sumir em vez de empurrar o painel.
-
-    Um QLabel comum entrega o texto inteiro como largura minima. Com uma url de cento e
-    poucos caracteres, o lado direito da janela passava a exigir quase dois mil pixels, e
-    o splitter tirava essa largura da arvore: bastava chegar uma resposta comprida pra
-    coluna da esquerda encolher sozinha.
-    """
-
-    def __init__(self, modo=Qt.TextElideMode.ElideRight, parent=None):
-        super().__init__(parent)
-        self._modo = modo
-        self._cheio = ""
-        self.setMinimumWidth(1)
-        # o que passa aqui vem do servidor, e texto com cara de tag viraria HTML, ver
-        # widgets.dica_de_fora
-        self.setTextFormat(Qt.TextFormat.PlainText)
-
-    def setText(self, texto: str) -> None:  # noqa: N802
-        self._cheio = texto or ""
-        self.setToolTip(dica_de_fora(self._cheio))
-        self._encaixar()
-        self.updateGeometry()
-
-    def texto_cheio(self) -> str:
-        return self._cheio
-
-    def sizeHint(self):  # noqa: N802
-        """O que ele gostaria de ter e a largura do texto inteiro.
-
-        Sem isso o rotulo pergunta o tamanho do texto ja cortado, que foi cortado no
-        tamanho que ele tinha, e a conta se fecha em zero: ele some da barra.
-        """
-        tamanho = super().sizeHint()
-        tamanho.setWidth(self.fontMetrics().horizontalAdvance(self._cheio) + 2)
-        return tamanho
-
-    def minimumSizeHint(self):  # noqa: N802
-        tamanho = super().minimumSizeHint()
-        tamanho.setWidth(1)
-        return tamanho
-
-    def resizeEvent(self, evento):  # noqa: N802
-        super().resizeEvent(evento)
-        self._encaixar()
-
-    def _encaixar(self) -> None:
-        largura = max(0, self.width() - 2)
-        super().setText(self.fontMetrics().elidedText(self._cheio, self._modo, largura))
 
 
 class Pill(QLabel):
@@ -356,7 +351,24 @@ class Previa(QTextBrowser):
         return QByteArray()
 
 
-def tabela_pares(rows, cor_chave: str = theme.ACCENT, largura: int = 280) -> QTableWidget:
+def _pintar_coluna(tabela, coluna: int, papel: str) -> None:
+    """Cor de um papel do tema numa coluna inteira, refeita a cada troca de tema.
+
+    A cor pronta ficava dentro de cada celula: trocar de tema deixava os nomes dos
+    headers e dos cookies na cor do tema anterior, alguns quase sem contraste.
+    """
+
+    def pintar(alvo, coluna=coluna, papel=papel):
+        cor = QColor(theme.cor(papel))
+        for linha in range(alvo.rowCount()):
+            item = alvo.item(linha, coluna)
+            if item is not None:
+                item.setForeground(cor)
+
+    theme.ao_trocar_widget(tabela, pintar)
+
+
+def tabela_pares(rows, papel_chave: str = "marca", largura: int = 280) -> QTableWidget:
     tabela = QTableWidget(len(rows or []), 2)
     tabela.setHorizontalHeaderLabels(["Nome", "Valor"])
     cabecalho_a_esquerda(tabela)
@@ -369,7 +381,6 @@ def tabela_pares(rows, cor_chave: str = theme.ACCENT, largura: int = 280) -> QTa
     tabela.setWordWrap(False)
     for indice, par in enumerate(rows or []):
         chave = QTableWidgetItem(str(par[0]))
-        chave.setForeground(QColor(cor_chave))
         chave.setFont(mono(9))
         valor = QTableWidgetItem(str(par[1]))
         valor.setFont(mono(9))
@@ -377,6 +388,7 @@ def tabela_pares(rows, cor_chave: str = theme.ACCENT, largura: int = 280) -> QTa
         tabela.setItem(indice, 0, chave)
         tabela.setItem(indice, 1, valor)
         tabela.setRowHeight(indice, theme.medida("linha_tabela"))
+    _pintar_coluna(tabela, 0, papel_chave)
     return tabela
 
 
@@ -403,6 +415,12 @@ class ResponseView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._dados: dict | None = None
+        # o que esta na tela agora, e de onde veio: guardar como exemplo tem que usar isto,
+        # e nao a ultima resposta ao vivo do request
+        self.exibido: dict | None = None
+        self._corpo = ""
+        self._raw_pendente: tuple | None = None
+        self._grande = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -480,6 +498,10 @@ class ResponseView(QWidget):
         theme.estilizar(self.linha, lambda: f"background: {theme.BORDER};")
         root.addWidget(self.linha)
 
+        self.faixa = Faixa()
+        self.faixa.acao.connect(self._acao_faixa)
+        root.addWidget(self.faixa)
+
         self.tabs = BadgeTabs()
 
         self.pretty = BodyView()
@@ -499,6 +521,7 @@ class ResponseView(QWidget):
         self.tabs.addTab(self.cookies_box, "Cookies")
         self.tabs.addTab(self.enviado_box, "Enviado")
         so_a_pagina_aberta(self.tabs)
+        self.tabs.currentChanged.connect(self._preencher_raw)
         root.addWidget(self.tabs, 1)
 
         atalho = QShortcut(QKeySequence.StandardKey.Find, self)
@@ -516,9 +539,29 @@ class ResponseView(QWidget):
                 atual.busca.setFocus()
 
 
+    def _ligar_acoes(self, ligado: bool, exemplo: bool = True) -> None:
+        """Sem resposta, copiar, salvar e guardar exemplo nao tem o que fazer.
+
+        Acesos, os icones pareciam prontos pra uso e o clique voltava calado. O de curl
+        completo fica sempre ligado: ele depende do request aberto, nao da resposta.
+        """
+        for botao in (self.btn_copiar, self.btn_salvar, self.btn_busca, self.btn_wrap):
+            botao.setEnabled(ligado)
+        self.btn_exemplo.setEnabled(ligado and exemplo)
+        self.btn_exemplo.setToolTip(
+            "guardar esta resposta como exemplo do request" if exemplo or not ligado
+            else "isto ja e um exemplo guardado"
+        )
+
     def clear(self) -> None:
         self.espera.stop()
         self._dados = None
+        self.exibido = None
+        self._corpo = ""
+        self._raw_pendente = None
+        self._grande = False
+        self.faixa.esconder()
+        self._ligar_acoes(False)
         self.marca.hide()
         self.pill.hide()
         self.metricas.setText("")
@@ -554,22 +597,44 @@ class ResponseView(QWidget):
         self.url_final.setText(url)
         self.pretty.edit.setPlaceholderText("aguardando resposta")
         self.pretty.set_text("", "none")
+        self.faixa.esconder()
+        self._ligar_acoes(False)
+        self.exibido = None
 
-    def _marcar_exemplo(self, nome: str) -> None:
-        self.marca.setVisible(bool(nome))
-        if not nome:
+    def _marcar(self, texto: str) -> None:
+        """Etiqueta de quando a tela nao mostra uma chamada de agora: exemplo ou historico."""
+        self.marca.setVisible(bool(texto))
+        if not texto:
             return
-        self.marca.setText(f"exemplo: {nome}")
+        self.marca.setText(texto)
         theme.estilizar(
             self.marca,
             lambda: f"color: {theme.ACCENT}; background: {tokens.alfa(theme.ACCENT, 0.15)};"
             f" border-radius: 8px; padding: 1px 9px; font-size: 8pt; font-weight: 600;",
         )
 
-    def show_response(self, data: dict, sent: dict | None = None) -> None:
+    def show_response(
+        self,
+        data: dict,
+        sent: dict | None = None,
+        origem: str = "vivo",
+        ledger: list | None = None,
+        dono: str | None = None,
+        rotulo: str = "",
+    ) -> None:
+        """`origem` diz de onde veio o que esta na tela: vivo, exemplo ou historico."""
         self.espera.stop()
         self._dados = data
-        self._marcar_exemplo(data.get("exemplo") or "")
+        if data.get("exemplo"):
+            origem = "exemplo"
+            rotulo = f"exemplo: {data.get('exemplo')}"
+        self.exibido = {
+            "dados": data, "enviado": sent, "ledger": list(ledger or []),
+            "origem": origem, "dono": dono,
+        }
+        self._marcar(rotulo)
+        self._ligar_acoes(True, exemplo=origem != "exemplo")
+        self.faixa.esconder()
         ok = bool(data.get("ok"))
         status = data.get("status")
         if ok:
@@ -606,11 +671,50 @@ class ResponseView(QWidget):
 
         corpo = data.get("body") or ""
         if not ok:
-            corpo = data.get("error") or "erro desconhecido"
+            # a frase do que fazer vai na frente, e o texto tecnico fica embaixo como veio
+            erro = data.get("error") or "erro desconhecido"
+            frase = engine.explicar_erro(erro, final)
+            corpo = f"{frase}\n\n{erro}" if frase else erro
+        self._corpo = corpo
 
-        idioma = guess_language(corpo, content_type)
-        self.raw.set_text(corpo, idioma)
-        self.pretty.set_text(self._embelezar(corpo, idioma), idioma)
+        tamanho = data.get("sizeBytes") or len(corpo)
+        if ok and data.get("content") and eh_binario(content_type):
+            aviso = f"resposta binaria de {human_bytes(tamanho)}, {content_type}. Use o salvar em arquivo."
+            self.raw.set_text(aviso, "none")
+            self.pretty.set_text(aviso, "none")
+            self._raw_pendente = None
+            self._grande = False
+        elif len(corpo) > LIMITE_REALCE:
+            # Grande: sem reformatar nem colorir, e o Raw so e preenchido quando alguem
+            # abre ele. Acima do limite da tela, so o comeco aparece.
+            cortado = len(corpo) > LIMITE_TELA
+            trecho = corpo[:LIMITE_TELA] if cortado else corpo
+            self._grande = True
+            self.pretty.set_text(trecho, "none")
+            self._raw_pendente = (trecho, "none")
+            self.raw.set_text("", "none")
+            if cortado:
+                self.faixa.mostrar(
+                    f"resposta grande, {human_bytes(tamanho)}: a tela mostra so o comeco e a "
+                    "busca procura so nele",
+                    "aviso",
+                    "salvar em arquivo",
+                )
+            else:
+                self.faixa.mostrar(
+                    f"resposta grande, {human_bytes(tamanho)}: aparece sem formatar pra "
+                    "janela nao travar",
+                    "aviso",
+                    "formatar mesmo assim",
+                )
+            if self.tabs.currentIndex() == 1:
+                self._preencher_raw(1)
+        else:
+            idioma = guess_language(corpo, content_type)
+            self._grande = False
+            self._raw_pendente = None
+            self.raw.set_text(corpo, idioma)
+            self.pretty.set_text(self._embelezar(corpo, idioma), idioma)
 
         eh_html = "html" in content_type or corpo.lstrip().lower().startswith("<!doctype html")
         eh_imagem = content_type.startswith("image/")
@@ -705,12 +809,11 @@ class ResponseView(QWidget):
         tabela.setColumnWidth(0, 190)
         tabela.setColumnWidth(1, 260)
         for indice, (nome, valor, atributos) in enumerate(cookies):
-            item_nome = QTableWidgetItem(nome)
-            item_nome.setForeground(QColor(theme.ACCENT))
-            tabela.setItem(indice, 0, item_nome)
+            tabela.setItem(indice, 0, QTableWidgetItem(nome))
             tabela.setItem(indice, 1, QTableWidgetItem(valor))
             tabela.setItem(indice, 2, QTableWidgetItem(atributos))
             tabela.setRowHeight(indice, theme.medida("linha_tabela"))
+        _pintar_coluna(tabela, 0, "marca")
         return tabela
 
     def _painel_enviado(self, sent: dict | None) -> QWidget:
@@ -736,8 +839,22 @@ class ResponseView(QWidget):
             rotulo = QLabel(f"HEADERS ENVIADOS  {len(headers)}")
             rotulo.setObjectName("sectionTitle")
             layout.addWidget(rotulo)
-            tabela = tabela_pares(headers, theme.WARN, 240)
-            tabela.setMaximumHeight(min(200, 30 + 22 * len(headers)))
+            tabela = tabela_pares(headers, "aviso", 240)
+            # pela altura de verdade: a conta de 22 por linha nao via o cabecalho nem a
+            # linha de 26 do confortavel, e o unico header saia cortado ao meio
+            tabela.ensurePolished()
+            tabela.horizontalHeader().ensurePolished()
+            altura = (
+                tabela.horizontalHeader().sizeHint().height()
+                + sum(tabela.rowHeight(i) for i in range(tabela.rowCount()))
+                + 2 * tabela.frameWidth() + 2
+            )
+            tabela.setMaximumHeight(min(200, altura))
+            # com o painel baixo, quem encolhe e o corpo, que tem rolagem propria; a
+            # tabela nao desce de uma linha inteira
+            primeira = tabela.rowHeight(0) if tabela.rowCount() else 0
+            tabela.setMinimumHeight(min(altura, tabela.horizontalHeader().sizeHint().height()
+                                        + primeira + 2 * tabela.frameWidth() + 2))
             layout.addWidget(tabela)
 
         corpo = sent.get("body") or ""
@@ -762,9 +879,54 @@ class ResponseView(QWidget):
         self.pretty.set_wrap(ligado)
         self.raw.set_wrap(ligado)
 
+    def _preencher_raw(self, indice: int) -> None:
+        if indice == 1 and self._raw_pendente is not None:
+            texto, idioma = self._raw_pendente
+            self._raw_pendente = None
+            self.raw.set_text(texto, idioma)
+
+    def _acao_faixa(self) -> None:
+        if len(self._corpo) > LIMITE_TELA:
+            self._salvar()
+            return
+        # o pedido e explicito: a espera agora e escolha de quem clicou
+        tipo = header_value((self._dados or {}).get("headers") or [], "content-type").split(";")[0]
+        idioma = guess_language(self._corpo, tipo)
+        self.pretty.set_text(self._embelezar(self._corpo, idioma), idioma)
+        self.faixa.esconder()
+
+    def _texto_visivel(self) -> str:
+        """O que a aba aberta mostra. Na Raw e o corpo como veio, e nao o reindentado."""
+        if self.tabs.currentIndex() == 1:
+            self._preencher_raw(1)
+            return self.raw.edit.toPlainText()
+        return self.pretty.edit.toPlainText()
+
+    def _piscar(self, botao, desenhar) -> None:
+        """O mesmo visto verde do Copiar da barra do request, por um segundo e meio."""
+        botao.setIcon(icons.icone_visto(theme.OK))
+        QTimer.singleShot(1500, lambda b=botao, d=desenhar: b.setIcon(_com_apagado(d)))
+
+    def _recado(self, texto: str, ms: int = 4000) -> None:
+        janela = self.window()
+        if hasattr(janela, "statusBar"):
+            janela.statusBar().showMessage(texto, ms)
+
     def _copiar(self) -> None:
         if self._dados:
-            QGuiApplication.clipboard().setText(self.pretty.edit.toPlainText())
+            QGuiApplication.clipboard().setText(self._texto_visivel())
+            self._piscar(self.btn_copiar, icons.icone_copiar)
+            self._recado("corpo da resposta copiado")
+
+    @staticmethod
+    def _nome_sugerido(headers) -> str:
+        """O nome do Content-Disposition, quando o servidor manda um."""
+        from urllib.parse import unquote
+
+        achado = RE_NOME_ARQUIVO.search(header_value(headers, "content-disposition"))
+        if not achado:
+            return ""
+        return Path(unquote(achado.group(1)).strip()).name
 
     # Sufixo pelo content-type. Sem isso toda resposta saia .txt, e imagem ou pdf
     # gravados como texto viravam arquivo ilegivel.
@@ -787,18 +949,23 @@ class ResponseView(QWidget):
 
         bruto = self._dados.get("content")
         binario = bool(bruto) and not tipo.startswith("text/") and "json" not in tipo and "xml" not in tipo
+        # Os bytes como vieram, a nao ser que a aba aberta seja a Pretty de um texto: ai
+        # vai o que ela mostra, a versao formatada. Resposta cortada na tela sai inteira.
+        como_veio = binario or self.tabs.currentIndex() != 0 or len(self._corpo) > LIMITE_TELA
 
-        destino, _ = QFileDialog.getSaveFileName(self, "Salvar resposta", f"resposta{sufixo}")
+        nome = self._nome_sugerido(self._dados.get("headers") or []) or f"resposta{sufixo}"
+        destino, _ = QFileDialog.getSaveFileName(self, "Salvar resposta", nome)
         if not destino:
             return
         try:
-            if binario:
-                # imagem, pdf e afins saem byte a byte como vieram. So texto passa pelo
-                # que esta na tela, que e a versao ja formatada.
+            if como_veio and bruto:
                 Path(destino).write_bytes(bruto)
+            elif como_veio:
+                Path(destino).write_text(self._corpo, encoding="utf-8")
             else:
                 Path(destino).write_text(self.pretty.edit.toPlainText(), encoding="utf-8")
         except OSError as exc:
-            janela = self.window()
-            if hasattr(janela, "statusBar"):
-                janela.statusBar().showMessage(f"nao consegui gravar: {exc}", 6000)
+            self._recado(f"nao consegui gravar: {exc}", 6000)
+            return
+        self._piscar(self.btn_salvar, icons.icone_baixar)
+        self._recado(f"resposta salva em {destino}", 6000)

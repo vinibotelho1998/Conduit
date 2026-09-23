@@ -31,7 +31,9 @@ RAIO = {"micro": 4, "pequeno": 6, "medio": 9, "grande": 12, "cartao": 16, "pilul
 FONTE = {"micro": 8.0, "miudo": 8.5, "corpo": 10.0, "medio": 11.0, "titulo": 13.0}
 
 FAMILIA = "Segoe UI, Inter, system-ui, sans-serif"
-FAMILIA_MONO = "Cascadia Code, Cascadia Mono, Consolas, Courier New, monospace"
+# Cascadia Mono antes da Code: e o mesmo desenho sem ligadura, e aqui o texto tem que
+# aparecer como e. Com ligadura, o :// da url e um != no corpo viravam outro desenho.
+FAMILIA_MONO = "Cascadia Mono, Cascadia Code, Consolas, Courier New, monospace"
 
 # Duas densidades. A confortavel e a de hoje. A compacta ganha quase quatro linhas de
 # arvore numa tela de notebook, que e onde o app aperta.

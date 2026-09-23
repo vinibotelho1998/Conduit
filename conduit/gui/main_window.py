@@ -5,10 +5,12 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QComboBox,
     QDialog,
@@ -29,7 +31,7 @@ from PySide6.QtWidgets import (
 
 from .. import APP_NAME, VERSION_LABEL, __version__
 from ..core import auth, codegen, dinamicas, engine, examples, scopes, workspaces as ws
-from ..core.history import History
+from ..core.history import DIAS_CORPO, DIAS_RESUMO, History
 from . import icons, theme
 from .codegen_dialog import CodegenDialog
 from .console_panel import ConsolePanel
@@ -47,7 +49,7 @@ from .sftp_panel import SftpPanel
 from .splitter import Divisor
 from .tabbar import AbaTabs
 from .tree_panel import TreePanel
-from .widgets import dica_de_fora
+from .widgets import Elastico, conta, dica_de_fora
 
 
 class SendSignals(QObject):
@@ -63,11 +65,14 @@ class SendTask(QRunnable):
     janela, que a solta no _finish_send.
     """
 
-    def __init__(self, prepared, node):
+    def __init__(self, prepared, node, geracao: int = 0):
         super().__init__()
         self.setAutoDelete(False)
         self.prepared = prepared
         self.node = node
+        # numero do envio: cancelado ou abandonado, o resultado que chegar depois e
+        # jogado fora em vez de ir pra tela, pro historico e pros cookies
+        self.geracao = geracao
         self.signals = SendSignals()
 
     @Slot()
@@ -83,7 +88,25 @@ class SendTask(QRunnable):
 # O que a aba edita e, portanto, o que entra na comparacao de salvo contra alterado.
 # Nome, favorito e posicao na arvore nao estao aqui de proposito: quem manda nisso e a
 # arvore, e renomear com a aba aberta nao pode virar alteracao pendente do request.
-CAMPOS_EDITAVEIS = ("method", "url", "params", "headers", "body", "auth", "docs")
+CAMPOS_EDITAVEIS = ("method", "url", "params", "headers", "body", "auth", "docs", "settings")
+
+
+def _ajustes(no: dict) -> dict:
+    """Tempo limite, certificado e redirect, com o padrao do envio no que faltar.
+
+    Request antigo sem settings e um com os valores de fabrica escritos sao o mesmo
+    request: sem normalizar, todo request antigo abriria com o ponto de nao salvo aceso.
+    """
+    bruto = no.get("settings") if isinstance(no.get("settings"), dict) else {}
+    try:
+        tempo = float(bruto.get("timeout") or 0)
+    except (TypeError, ValueError):
+        tempo = 0.0
+    return {
+        "timeout": tempo,
+        "verifyTls": bruto.get("verifyTls", True) is not False,
+        "followRedirects": bruto.get("followRedirects", True) is not False,
+    }
 
 
 def _foto(no: dict) -> str:
@@ -135,6 +158,7 @@ def _foto(no: dict) -> str:
         "body": {"mode": corpo.get("mode") or "none", "raw": corpo.get("raw") or ""},
         "auth": autenticacao,
         "docs": no.get("docs") or "",
+        "settings": _ajustes(no),
     }
     return json.dumps(dados, sort_keys=True, ensure_ascii=False, default=str)
 
@@ -151,6 +175,11 @@ class MainWindow(QMainWindow):
         self.editors: dict[str, RequestEditor] = {}
         self.env_editors: dict[str, EnvEditor] = {}
         self.pending: set[str] = set()
+        # geracao do envio em curso de cada request, ver SendTask
+        self._geracao: dict[str, int] = {}
+        self._contador_envio = 0
+        # pasta em que cada servidor SFTP estava quando a sessao caiu, pra reconectar
+        self._sftp_voltar: dict[str, str] = {}
         # url de cada envio em curso, pra faixa continuar mostrando o alvo quando
         # a aba sai e volta no meio da espera
         self.enviando_para: dict[str, str] = {}
@@ -226,7 +255,7 @@ class MainWindow(QMainWindow):
         self.search.setPlaceholderText("Buscar request, url ou pasta")
         self.search.setClearButtonEnabled(True)
         self.search.setFixedWidth(292)
-        self.search.textChanged.connect(lambda text: self.tree_panel.apply_filter(text))
+        self.search.textChanged.connect(self._buscar_na_arvore)
         bar.addWidget(self.search)
 
         # Espacador. Fica transparente pela regra `QToolBar > .QWidget` da folha: um
@@ -263,7 +292,11 @@ class MainWindow(QMainWindow):
     def _build_central(self) -> None:
         self.tree_panel = TreePanel()
         self.tree_panel.request_opened.connect(self.open_request)
-        self.tree_panel.tree_changed.connect(self.mark_dirty)
+        self.tree_panel.tree_changed.connect(self._arvore_mudou)
+        self.tree_panel.variaveis_pedidas.connect(self.variaveis_do_grupo)
+        self.tree_panel.request_criado.connect(self._abrir_request_novo)
+        self.tree_panel.nova_collection_pedida.connect(self.new_collection)
+        self.tree_panel.importar_pedido.connect(self.importar_arquivo)
         # Sem atalho aqui de proposito: o menu Arquivo e o Editar ja tem Ctrl+Shift+N,
         # Ctrl+Alt+N e Ctrl+N nestas mesmas tres acoes. Repetir o mesmo atalho numa
         # segunda QAction faz o Qt marcar as duas como ambiguas, e nenhuma das duas
@@ -284,6 +317,7 @@ class MainWindow(QMainWindow):
         self.history_panel.replay_requested.connect(self.replay_entry)
         self.history_panel.open_request_requested.connect(self.reveal_request)
         self.history_panel.load_response_requested.connect(self.show_history_response)
+        self.history_panel.recado.connect(lambda texto: self.statusBar().showMessage(texto, 8000))
 
         self.env_panel = EnvPanel()
         self.env_panel.abrir.connect(self.open_environment)
@@ -294,7 +328,7 @@ class MainWindow(QMainWindow):
         self.env_panel.excluir.connect(self.delete_environment)
 
         self.fav_panel = FavoritesPanel()
-        self.fav_panel.abrir.connect(self.reveal_request)
+        self.fav_panel.abrir.connect(self._abrir_favorito)
         self.fav_panel.desfavoritar.connect(self._desfavoritar)
 
         self.side = QTabWidget()
@@ -358,7 +392,9 @@ class MainWindow(QMainWindow):
         # A coluna da esquerda tem tamanho proprio: sem fator de esticar, o Qt
         # reparte qualquer sobra entre os dois lados e a arvore anda sozinha toda vez
         # que a janela muda de tamanho.
-        self.side.setMinimumWidth(190)
+        # abaixo de uns 290 as cinco abas da lateral viravam setas, e os botoes de
+        # Ambientes e do Historico viravam pedacos de palavra
+        self.side.setMinimumWidth(290)
         self.side.setMaximumWidth(640)
         main = Divisor(Qt.Orientation.Horizontal)
         main.addWidget(self.side)
@@ -403,13 +439,13 @@ class MainWindow(QMainWindow):
         arquivo.addAction(self._action("Sair", self.close, "Ctrl+Q"))
 
         editar = menu.addMenu("&Editar")
-        editar.addAction(self._action("Desfazer na arvore", self.undo_tree, "Ctrl+Z"))
+        editar.addAction(self._acao_da_arvore("Desfazer na arvore", self.undo_tree, "Ctrl+Z"))
         editar.addSeparator()
         editar.addAction(self._action("Novo request na selecao", self.new_request, "Ctrl+N"))
         editar.addAction(self._action("Nova pasta na selecao", self.new_folder, "Ctrl+Alt+N"))
-        editar.addAction(self._action("Renomear", self.rename_selected, "F2"))
-        editar.addAction(self._action("Duplicar", self.duplicate_selected, "Ctrl+D"))
-        editar.addAction(self._action("Excluir", self.delete_selected, "Del"))
+        editar.addAction(self._acao_da_arvore("Renomear", self.rename_selected, "F2"))
+        editar.addAction(self._acao_da_arvore("Duplicar", self.duplicate_selected, "Ctrl+D"))
+        editar.addAction(self._acao_da_arvore("Excluir", self.delete_selected, "Del"))
         editar.addSeparator()
         editar.addAction(self._action("Favoritar ou desfavoritar", self.toggle_favorite, "Ctrl+Shift+F"))
         editar.addSeparator()
@@ -427,9 +463,7 @@ class MainWindow(QMainWindow):
         # Ctrl+Shift+E colidia com Exportar, no menu Arquivo: as duas acoes tinham o
         # mesmo atalho, e o Qt nao dispara nenhuma quando duas ficam ambiguas assim
         ambientes.addAction(self._action("Novo ambiente", self.new_environment, "Ctrl+Alt+E"))
-        ambientes.addAction(
-            self._action("Gerenciar ambientes", lambda: self.open_variables("Ambientes"))
-        )
+        ambientes.addAction(self._action("Gerenciar ambientes", self._gerenciar_ambientes))
         ambientes.aboutToShow.connect(lambda: self._montar_menu_ambientes(ambientes))
 
         ver = menu.addMenu("&Ver")
@@ -460,7 +494,7 @@ class MainWindow(QMainWindow):
         executar.addAction(self._action("Importar de curl", self.importar_curl))
         executar.addSeparator()
         executar.addAction(self._action("Servidores SFTP", lambda: self._ir_para_lateral(4)))
-        executar.addAction(self._action("Certificados cliente", self.open_certs))
+        executar.addAction(self._action("Certificados e CA", self.open_certs))
         executar.addAction(self._action("Cookies guardados", self.open_cookies))
         executar.addAction(self._action("Esquecer tokens do OAuth2", self.limpar_tokens))
 
@@ -487,10 +521,12 @@ class MainWindow(QMainWindow):
 
         historico = menu.addMenu("&Historico")
         historico.addAction(self._action("Ver historico", lambda: self._ir_para_lateral(3), "Ctrl+H"))
-        historico.addAction(self._action("Reenviar a execucao selecionada", self.history_panel._replay))
+        historico.addAction(self._action("Enviar o request de novo", self.history_panel._replay))
         historico.addSeparator()
         historico.addAction(self._action("Reconstruir indice", self.rebuild_history_index))
-        historico.addAction(self._action("Expurgar antigos", self.purge_history))
+        historico.addAction(
+            self._action(f"Apagar corpos com mais de {DIAS_CORPO} dias", self.purge_history)
+        )
         historico.addAction(self._action("Limpar tudo", self.clear_history))
 
         ajuda = menu.addMenu("A&juda")
@@ -511,6 +547,19 @@ class MainWindow(QMainWindow):
             action.setShortcut(shortcut)
         return action
 
+    def _acao_da_arvore(self, text: str, slot, shortcut) -> QAction:
+        """Acao cujo atalho so vale com o foco na arvore; o clique no menu vale sempre.
+
+        F2, Del, Ctrl+D e Ctrl+Z eram atalhos de janela barrados por uma guarda de foco,
+        e a guarda barrava tambem o clique no menu e a paleta: com o cursor na url,
+        Editar, Renomear nao fazia nada e nao dizia nada. Preso a arvore, o atalho deixa
+        Del, F2 e Enter livres pra grade e pro navegador SFTP.
+        """
+        action = self._action(text, slot, shortcut)
+        action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.tree_panel.addAction(action)
+        return action
+
     def statusBar(self):  # noqa: N802
         """A janela inteira ja fala com a barra de baixo por este nome."""
         return self.rodape
@@ -524,8 +573,10 @@ class MainWindow(QMainWindow):
         barra.setSizeGripEnabled(False)
 
         self.btn_lateral = self._rodape_botao(
-            "▐▌", "mostrar ou esconder a lateral,  Ctrl+B", self._alternar_lateral
+            "", "mostrar ou esconder a lateral,  Ctrl+B", self._alternar_lateral
         )
+        self.btn_lateral.setIconSize(QSize(16, 16))
+        theme.ao_trocar_widget(self.btn_lateral, lambda b: b.setIcon(icons.icone_lateral()))
         barra.addWidget(self.btn_lateral)
 
         self.btn_console = self._rodape_botao(
@@ -545,7 +596,8 @@ class MainWindow(QMainWindow):
         barra.addWidget(self.btn_pasta_rodape)
         barra.separador()
 
-        self.status_right = QLabel("")
+        # Elastico pelo mesmo motivo da mensagem: nome de ambiente comprido nao alarga a janela
+        self.status_right = Elastico()
         self.status_right.setObjectName("hint")
         self.statusBar().addPermanentWidget(self.status_right)
 
@@ -649,6 +701,11 @@ class MainWindow(QMainWindow):
             # a ultima tecla da aba ainda nao tinha ido pro rascunho, e as abas fecham aqui
             self._guardar_rascunhos()
         self.rascunho_timer.stop()
+        # Envio pendurado do workspace que sai e abandonado: a resposta que chegasse depois
+        # ia pro historico do workspace novo, que promete que nada vaza entre eles.
+        self.pending.clear()
+        self.enviando_para.clear()
+        self._geracao.clear()
 
         entry = ws.get_workspace(wid)
         self.workspace_id = wid
@@ -761,7 +818,8 @@ class MainWindow(QMainWindow):
         self.rascunhos = do_disco
         if mudou:
             self.statusBar().showMessage(
-                f"{mudou} aba(s) receberam alteracao de fora, ainda nao salva", 6000
+                f"{conta(mudou, 'aba recebeu', 'abas receberam')} alteracao de fora, ainda nao salva",
+                6000,
             )
 
     def _recarregar_do_disco(self, atual: dict | None = None) -> None:
@@ -835,7 +893,10 @@ class MainWindow(QMainWindow):
 
         aviso = "recarregado do disco"
         if preservadas:
-            aviso += f", {preservadas} aba(s) com alteracao sua ficaram como estavam"
+            aviso += (
+                f", {conta(preservadas, 'aba com alteracao sua ficou', 'abas com alteracao sua ficaram')}"
+                " como estava" + ("" if preservadas == 1 else "m")
+            )
         self.statusBar().showMessage(aviso, 5000)
 
     def _reabrir_rascunhos(self) -> None:
@@ -854,13 +915,13 @@ class MainWindow(QMainWindow):
             )
 
     def new_workspace(self) -> None:
+        from .workspaces_dialog import criar_workspace
+
         name, ok = QInputDialog.getText(self, "Novo workspace", "Nome do workspace")
         if not ok or not name.strip():
             return
-        try:
-            entry = ws.create_workspace(name.strip())
-        except ValueError as exc:
-            QMessageBox.warning(self, "Conduit", str(exc))
+        entry = criar_workspace(self, name.strip())
+        if entry is None:
             return
         self._load_registry()
         self.load_workspace(entry["id"])
@@ -1031,15 +1092,26 @@ class MainWindow(QMainWindow):
 
     def _editar_ambiente_ativo(self) -> None:
         alvo = self.tree_data.get("activeEnv")
+        self._ir_para_lateral(2)
         if not alvo:
-            self.side.setCurrentIndex(2)
             return
-        self.side.setCurrentIndex(2)
         self.env_panel.selecionar(alvo)
         self.open_environment(alvo)
 
+    def _gerenciar_ambientes(self) -> None:
+        """Os ambientes moram na lateral. Antes este item abria a tela de variaveis, que
+        nao tem mais aba de ambiente, e caia na aba Collection sem ambiente nenhum."""
+        self._ir_para_lateral(2)
+        self.env_panel.selecionar(self.tree_data.get("activeEnv"))
+
     def _on_env_changed(self, _index: int) -> None:
-        self.tree_data["activeEnv"] = self.env_combo.currentData()
+        # O mesmo que Usar este na lateral: trocar so o dado deixava a lista e a aba do
+        # ambiente marcando o antigo como ativo, com o envio ja usando o novo.
+        env_id = self.env_combo.currentData()
+        self.tree_data["activeEnv"] = env_id
+        self.env_panel.refresh()
+        for outro_id, editor in self.env_editors.items():
+            editor.atualizar(ativo=outro_id == env_id)
         self.mark_dirty()
         self._refresh_var_hints()
         nome = self.env_combo.currentText()
@@ -1058,7 +1130,7 @@ class MainWindow(QMainWindow):
         self.env_panel.refresh()
         self.env_panel.selecionar(env["id"])
         self.mark_dirty()
-        self.side.setCurrentIndex(2)
+        self._ir_para_lateral(2)
         self.open_environment(env["id"])
         self.statusBar().showMessage(f"ambiente {env['name']} criado e ja ativo", 5000)
 
@@ -1083,18 +1155,8 @@ class MainWindow(QMainWindow):
     def variables_for(self, node: dict | None) -> dict:
         return scopes.build(self.tree_data, self.ancestry_of(node) if node else [], self.runtime_vars)
 
-    def _criar_automatico(self, editor: RequestEditor, nomes: list) -> None:
-        """Cria variavel sozinho so quando a aba tem edicao sua.
-
-        Abrir um request que usa {{algo}} de outro ambiente nao pode escrever no
-        ambiente ativo por conta propria: trocar de ambiente encheria os dois de nome
-        vazio sem ninguem ter pedido. Com edicao na aba, foi voce que escreveu.
-        """
-        if self._sujo(editor):
-            self.criar_variaveis(nomes)
-
     def criar_variaveis(self, nomes: list) -> None:
-        """Escrever {{algo}} que nao existe cria a variavel, vazia, no ambiente ativo.
+        """Cria a variavel, vazia, no ambiente ativo. Vem do criar da faixa e do cartao.
 
         Sem ambiente ativo ela nasce nas globais do workspace, que e o unico escopo que
         vale sempre. Nasce vazia de proposito: o app nao tem como inventar o valor, mas
@@ -1163,25 +1225,38 @@ class MainWindow(QMainWindow):
             if editor is not None:
                 editor.focar(nome)
             return
-        # collection e pasta moram na tela de variaveis, que mostra os cinco escopos
-        self.open_variables(info.scope)
+        # collection e pasta moram na tela de variaveis; a origem escolhe a pasta certa
+        # quando ha pasta dentro de pasta
+        self.open_variables(info.scope, info.origin)
 
     def on_variables_changed(self) -> None:
         self._reload_envs()
         self.mark_dirty()
 
-    def open_variables(self, aba: str = "") -> None:
-        node = self.current_node()
+    def open_variables(self, aba: str = "", origem: str = "", linhagem: list | None = None) -> None:
+        if linhagem is None:
+            node = self.current_node()
+            linhagem = self.ancestry_of(node) if node else []
         dialog = VariablesDialog(
             self.tree_data,
-            self.ancestry_of(node) if node else [],
+            linhagem,
             self.runtime_vars,
             self,
             aba if isinstance(aba, str) else "",
+            origem if isinstance(origem, str) else "",
         )
         dialog.exec()
         self._reload_envs()
         self.mark_dirty()
+
+    def variaveis_do_grupo(self, node: dict) -> None:
+        """Variaveis de uma collection ou pasta pelo botao direito, sem request aberto."""
+        e_colecao = node.get("type") == "collection"
+        self.open_variables(
+            "collection" if e_colecao else "pasta",
+            node.get("name") or "",
+            self.ancestry_of(node) + [node],
+        )
 
     def _montar_menu_ambientes(self, menu) -> None:
         """Lista os ambientes no proprio menu, com marca no ativo."""
@@ -1220,15 +1295,18 @@ class MainWindow(QMainWindow):
         atual = self.current_node()
         mapa = self.variables_for(atual)
         secretas = sum(1 for info in mapa.values() if info.secret)
-        env = self.env_combo.currentText()
-        partes = [f"{len(mapa)} variaveis"]
+        partes = [conta(len(mapa), "variavel", "variaveis")]
         if secretas:
-            partes.append(f"{secretas} secretas")
-        partes.append(f"ambiente {env}")
+            partes.append(conta(secretas, "secreta", "secretas"))
+        # sem ambiente, o rodape dizia "ambiente sem ambiente"
+        partes.append(
+            f"ambiente {self.env_combo.currentText()}" if self.env_combo.currentData()
+            else "sem ambiente ativo"
+        )
         self.status_right.setText("   |   ".join(partes))
 
         if hasattr(self, "btn_peek"):
-            self.btn_peek.setText(f"{len(mapa)} vars")
+            self.btn_peek.setText(conta(len(mapa), "variavel", "variaveis"))
 
 
     def open_request(self, node: dict) -> None:
@@ -1265,12 +1343,11 @@ class MainWindow(QMainWindow):
         editor.exemplos.renomear.connect(lambda ex, n=node: self.renomear_exemplo(n, ex))
         editor.exemplos.excluir.connect(lambda ex, n=node: self.excluir_exemplo(n, ex))
         editor.pedir_variavel.connect(self.abrir_variavel)
-        editor.criar_variaveis.connect(lambda nomes, e=editor: self._criar_automatico(e, nomes))
+        editor.cancelar_pedido.connect(lambda i=node_id: self.cancelar_envio(i))
         editor.set_variables(self.variables_for(rascunho))
-        config, origem = auth.efetiva(rascunho, self.ancestry_of(rascunho))
-        editor.set_heranca_auth(
-            "" if origem == "deste request" else f"vem de {origem}: {auth.TIPOS.get(config.get('type'), '')}"
-        )
+        editor.set_heranca_auth(self._texto_heranca(rascunho))
+        # fechar e reabrir a aba no meio do envio mostrava Enviar aceso que nao fazia nada
+        editor.set_sending(node_id in self.pending)
 
         editor.definir_exemplos(node.get("examples"))
 
@@ -1281,6 +1358,35 @@ class MainWindow(QMainWindow):
         self._sync_tabs_visibility()
         self._refresh_var_hints()
 
+
+    def _texto_heranca(self, request: dict) -> str:
+        config, origem = auth.efetiva(request, self.ancestry_of(request))
+        if origem == "deste request":
+            return ""
+        if origem == "nenhum":
+            return "nenhuma pasta nem a collection define auth, sai sem credencial"
+        return f"vem de {origem}: {auth.TIPOS.get(config.get('type'), '')}"
+
+    def _abrir_request_novo(self, node: dict) -> None:
+        """Request recem criado abre na aba, com o cursor na url, assim que ganha nome."""
+        self.open_request(node)
+        editor = self.editors.get(node.get("id"))
+        if editor is not None:
+            editor.focus_url()
+
+    def _arvore_mudou(self) -> None:
+        """Renomear, mover ou desfazer na arvore chega nas abas e nos favoritos.
+
+        Antes so marcava pra gravar: a aba seguia com o nome antigo, e depois de arrastar
+        pra outra collection a aba Auth e as cores das variaveis ficavam no escopo antigo
+        enquanto o envio ja usava o novo.
+        """
+        self.mark_dirty()
+        self.fav_panel.refresh()
+        for editor in self.editors.values():
+            self._marcar_aba(editor)
+            editor.set_heranca_auth(self._texto_heranca(editor.request))
+        self._refresh_var_hints()
 
     def _sujo(self, editor: RequestEditor) -> bool:
         real = getattr(editor, "no_real", None)
@@ -1436,7 +1542,9 @@ class MainWindow(QMainWindow):
                 quantas += 1
         self._save_now()
         self.statusBar().showMessage(
-            "{} request salvos".format(quantas) if quantas else "nenhuma aba tinha alteracao", 4000
+            conta(quantas, "request salvo", "requests salvos") if quantas
+            else "nenhuma aba tinha alteracao",
+            4000,
         )
 
     def reverter_aba(self) -> None:
@@ -1508,8 +1616,13 @@ class MainWindow(QMainWindow):
         real = getattr(widget, "no_real", None) if isinstance(widget, RequestEditor) else None
         if real is None:
             return
-        self.side.setCurrentIndex(0)
-        self.tree_panel.duplicate(real)
+        self._ir_para_lateral(0)
+        # com edicao na aba, a copia leva o que esta na tela, e nao o que esta no arquivo:
+        # quem duplica pra guardar duas variantes perdia justamente a variante nova
+        campos = None
+        if self._sujo(widget):
+            campos = {c: copy.deepcopy(widget.request[c]) for c in CAMPOS_EDITAVEIS if c in widget.request}
+        self.tree_panel.duplicate(real, campos)
 
     def _curl_da_aba(self, index: int) -> None:
         widget = self.tabs.widget(index)
@@ -1649,12 +1762,15 @@ class MainWindow(QMainWindow):
         has_tabs = self.tabs.count() > 0
         self.tabs.setVisible(has_tabs)
         self.empty.setVisible(not has_tabs)
+        if not has_tabs:
+            # sem request aberto, a metade de baixo repetia outro estado vazio
+            self.response.setVisible(False)
 
     def _on_tab_changed(self, _index: int) -> None:
         # aba de ambiente nao tem resposta pra mostrar, entao o painel some
         atual = self.tabs.currentWidget()
         e_request = isinstance(atual, RequestEditor)
-        self.response.setVisible(e_request or atual is None)
+        self.response.setVisible(e_request)
         self._mostrar_resposta_da_aba()
         self._refresh_var_hints()
 
@@ -1676,7 +1792,7 @@ class MainWindow(QMainWindow):
         if guardado is None:
             self.response.clear()
             return
-        self.response.show_response(guardado[0], guardado[1])
+        self.response.show_response(guardado[0], guardado[1], "vivo", guardado[2], node_id)
 
     def _on_editor_changed(self, node: dict) -> None:
         editor = self.editors.get(node.get("id"))
@@ -1727,36 +1843,49 @@ class MainWindow(QMainWindow):
     def undo_tree(self) -> None:
         """Desfaz a ultima mudanca de estrutura: mover, criar, duplicar ou excluir.
 
-        As abas abertas sao fechadas porque elas apontam pros dicionarios antigos, e
-        depois de restaurar a foto esses objetos nao sao mais os que estao na arvore.
+        A foto restaurada traz dicionarios novos, entao cada aba aberta passa a apontar
+        pro item de mesmo id, como no recarregar do disco. Antes todas as abas de request
+        fechavam, inclusive as sem relacao com o que se desfazia, e cancelar a pergunta
+        de uma delas cancelava o desfazer.
         """
-        if not self._foco_na_arvore():
-            return
         rotulo = self.tree_panel.pode_desfazer()
         if not rotulo:
             self.statusBar().showMessage("nada pra desfazer na arvore", 3000)
             return
 
-        abertas = [
-            indice for indice in range(self.tabs.count())
-            if isinstance(self.tabs.widget(indice), RequestEditor)
-        ]
-        if abertas:
-            # _fechar_muitas pergunta por rascunho sem salvar em cada aba, do mesmo jeito
-            # que fechar a aba na mao. Fechar direto com close_tab, como era antes,
-            # descartava sem avisar qualquer edicao que estivesse aberta em outra aba,
-            # mesmo sem relacao nenhuma com o que esta sendo desfeito.
-            self._fechar_muitas(abertas)
-            if any(isinstance(self.tabs.widget(i), RequestEditor) for i in range(self.tabs.count())):
-                self.statusBar().showMessage(
-                    "desfazer cancelado: feche ou salve as abas de request primeiro", 5000
-                )
-                return
-
-        self.tree_panel.desfazer()
-        self.fav_panel.refresh()
-        self.mark_dirty()
-        self.statusBar().showMessage(f"desfeito: {rotulo}", 5000)
+        # o sujo compara com o item antigo, entao e medido antes da troca
+        sujos = {node_id for node_id, editor in self.editors.items() if self._sujo(editor)}
+        self._recarregando = True
+        try:
+            self.tree_panel.desfazer()
+        finally:
+            self._recarregando = False
+        por_id = {no.get("id"): no for no in self.tree_panel._iter_nodes()}
+        fechadas = 0
+        for node_id, editor in list(self.editors.items()):
+            novo = por_id.get(node_id)
+            if novo is None:
+                if node_id not in sujos:
+                    # o request nao existe na foto, como o que acabou de ser criado
+                    self.close_tab(self.tabs.indexOf(editor))
+                    fechadas += 1
+                # com rascunho, a aba fica: salvar avisa que o request saiu do workspace
+                continue
+            editor.no_real = novo
+            if node_id not in sujos:
+                self._recarregando = True
+                try:
+                    editor.request.clear()
+                    editor.request.update(copy.deepcopy(novo))
+                    editor.recarregar_do_modelo()
+                finally:
+                    self._recarregando = False
+            editor.definir_exemplos(novo.get("examples"))
+        self._arvore_mudou()
+        recado = f"desfeito: {rotulo}"
+        if fechadas:
+            recado += f", {conta(fechadas, 'aba fechou', 'abas fecharam')} junto"
+        self.statusBar().showMessage(recado, 5000)
 
     def _destino_para_novo(self) -> dict | None:
         """Onde criar: o item selecionado, a pasta dele, ou a unica collection que existe."""
@@ -1770,26 +1899,46 @@ class MainWindow(QMainWindow):
             return colecoes[0]
         return None
 
-    def new_request(self) -> None:
-        destino = self._destino_para_novo()
-        if destino is None:
-            self.statusBar().showMessage(
-                "selecione a collection ou a pasta onde o request deve nascer", 5000
+    def _destino_ou_colecao_nova(self) -> dict | None:
+        """Como _destino_para_novo, e sem collection nenhuma pergunta o nome da primeira.
+
+        Workspace recem criado mandava selecionar a collection, sem nenhuma pra selecionar.
+        """
+        if not self.tree_data.get("collections"):
+            nome, ok = QInputDialog.getText(
+                self, "Nova collection", "O workspace ainda nao tem collection. Nome da primeira"
             )
-            self.side.setCurrentIndex(0)
+            if not ok or not nome.strip():
+                return None
+            return self.tree_panel.add_collection(nome.strip())
+        return self._destino_para_novo()
+
+    def new_request(self) -> None:
+        # a lateral aparece antes: com ela escondida por Ctrl+B, o request nascia numa
+        # arvore invisivel e a tela nao mudava nada
+        self._ir_para_lateral(0)
+        destino = self._destino_ou_colecao_nova()
+        if destino is None:
+            if self.tree_data.get("collections"):
+                self.statusBar().showMessage(
+                    "selecione a collection ou a pasta onde o request deve nascer", 5000
+                )
             return
-        self.side.setCurrentIndex(0)
-        self.tree_panel.add_child(destino, "request")
+        novo = self.tree_panel.add_child(destino, "request")
+        if self.tree_panel.tree.state() != QAbstractItemView.State.EditingState:
+            # sem a edicao do nome aberta, nao ha fim de edicao pra esperar
+            self.tree_panel._nomeando = None
+            self._abrir_request_novo(novo)
 
     def new_folder(self) -> None:
-        destino = self._destino_para_novo()
+        self._ir_para_lateral(0)
+        destino = self._destino_ou_colecao_nova()
         if destino is None:
-            self.statusBar().showMessage(
-                "selecione a collection ou a pasta que vai conter a nova pasta", 5000
-            )
-            self.side.setCurrentIndex(0)
+            if self.tree_data.get("collections"):
+                self.statusBar().showMessage(
+                    "selecione a collection ou a pasta que vai conter a nova pasta", 5000
+                )
             return
-        self.side.setCurrentIndex(0)
         novo = self.tree_panel.add_child(destino, "folder")
         self.statusBar().showMessage(
             f"pasta criada dentro de {destino.get('name')}, digite o nome", 5000
@@ -1821,28 +1970,15 @@ class MainWindow(QMainWindow):
         self.tree_panel.tree.viewport().update()
         self.mark_dirty()
 
-    def _foco_na_arvore(self) -> bool:
-        """Se o teclado esta na arvore agora, ou em nada especifico dela.
-
-        F2, Del, Ctrl+D e Ctrl+Z sao atalhos de janela, entao disparam com o foco em
-        qualquer lugar, inclusive dentro da grade de Params ou Headers. Sem esta guarda,
-        clicar uma linha da grade e apertar Del apagava o item selecionado NA ARVORE,
-        que podia ser uma collection inteira sem relacao nenhuma com a linha clicada.
-        """
-        foco = QApplication.focusWidget()
-        arvore = self.tree_panel.tree
-        return foco is None or foco is arvore or arvore.isAncestorOf(foco)
-
     def rename_selected(self) -> None:
-        if not self._foco_na_arvore():
-            return
         node = self.tree_panel.current_node()
         if node:
+            self._ir_para_lateral(0)
             self.tree_panel.rename(node)
+        else:
+            self.statusBar().showMessage("selecione na arvore o item a renomear", 4000)
 
     def duplicate_selected(self) -> None:
-        if not self._foco_na_arvore():
-            return
         node = self.tree_panel.current_node()
         if node and node.get("type") == "example":
             self.statusBar().showMessage("exemplo nao duplica, so o request", 4000)
@@ -1851,11 +1987,11 @@ class MainWindow(QMainWindow):
             self.tree_panel.duplicate(node)
 
     def delete_selected(self) -> None:
-        if not self._foco_na_arvore():
-            return
         node = self.tree_panel.current_node()
         if node:
             self._excluir_no(node)
+        else:
+            self.statusBar().showMessage("selecione na arvore o item a excluir", 4000)
 
     def _excluir_exemplo_da_arvore(self, involucro: dict) -> None:
         """Botao direito, Excluir exemplo, na propria arvore.
@@ -1876,10 +2012,22 @@ class MainWindow(QMainWindow):
         if node.get("type") == "example":
             self.excluir_exemplo(node.get("_pai") or {}, node.get("_exemplo") or {})
             return
+        # diz o tipo e o que vai junto, e nao promete definitivo: Ctrl+Z na arvore desfaz
+        tipo = {"collection": "a collection", "folder": "a pasta"}.get(node.get("type"), "o request")
+        juntos = ""
+        if node.get("type") != "request":
+            pastas = sum(1 for n in self.tree_panel._iter_nodes(node.get("items") or [])
+                         if n.get("type") == "folder")
+            requests = len(self._ids_de_requests(node))
+            partes = ([conta(pastas, "pasta", "pastas")] if pastas else []) + [
+                conta(requests, "request", "requests")
+            ]
+            juntos = f", com {' e '.join(partes)}"
         answer = QMessageBox.question(
             self,
             "Excluir",
-            f"Excluir {node.get('name')} em definitivo?",
+            f"Excluir {tipo} {node.get('name')}{juntos}?\n\n"
+            "Ctrl+Z na arvore desfaz enquanto o app estiver aberto.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1903,9 +2051,20 @@ class MainWindow(QMainWindow):
 
 
     def focus_url(self) -> None:
+        from .sftp_browser import SftpBrowser
+
         widget = self.tabs.currentWidget()
         if isinstance(widget, RequestEditor):
             widget.focus_url()
+        elif isinstance(widget, SftpBrowser):
+            # com a aba SFTP na frente, Ctrl+L e o campo de caminho do navegador
+            widget._editar_caminho()
+
+    def _buscar_na_arvore(self, texto: str) -> None:
+        # digitar na busca com a lateral em outra aba filtrava a arvore escondida
+        if texto and (not self.side.isVisible() or self.side.currentIndex() != 0):
+            self._ir_para_lateral(0)
+        self.tree_panel.apply_filter(texto)
 
     def _focar_busca(self) -> None:
         """Ctrl+F busca o que esta na frente, e nao sempre a arvore de collections.
@@ -1927,6 +2086,9 @@ class MainWindow(QMainWindow):
             return
         node_id = node.get("id")
         if node_id in self.pending:
+            self.statusBar().showMessage(
+                "este request ja tem um envio em curso. Cancelar, ou Esc, abandona a espera", 5000
+            )
             return
 
         # rede desligada: token do OAuth2 que nao esta no cofre e pedido pelo send, ja na
@@ -1947,6 +2109,9 @@ class MainWindow(QMainWindow):
                 f"variavel sem valor: {', '.join(prepared.missing)}", 6000
             )
 
+        self._contador_envio += 1
+        geracao = self._contador_envio
+        self._geracao[node_id] = geracao
         self.pending.add(node_id)
         editor = self.editors.get(node_id)
         if editor:
@@ -1954,9 +2119,14 @@ class MainWindow(QMainWindow):
         self.enviando_para[node_id] = prepared.url
         self.response.show_pending(prepared.url)
         self.registrar(f"{prepared.method} {prepared.url}", "envio", 0)
-        self.statusBar().showMessage(f"enviando {prepared.method} {prepared.url}")
+        if prepared.esquema_suposto:
+            self.statusBar().showMessage(
+                f"a url veio sem http, enviando como {prepared.url}", 6000
+            )
+        else:
+            self.statusBar().showMessage(f"enviando {prepared.method} {prepared.url}")
 
-        task = SendTask(prepared, node)
+        task = SendTask(prepared, node, geracao)
         self._tasks.add(task)
         task.signals.done.connect(
             lambda result, item, p=prepared, t=task: self._finish_send(result, item, p, t)
@@ -1974,8 +2144,31 @@ class MainWindow(QMainWindow):
             "body": getattr(prepared, "body", "") or "",
         }
 
+    def cancelar_envio(self, node_id: str) -> None:
+        """Abandona a espera. A thread segue presa ate o servidor responder ou cair,
+        mas o que chegar depois nao vai pra tela, pro historico nem pros cookies."""
+        if node_id not in self.pending:
+            return
+        self.pending.discard(node_id)
+        self.enviando_para.pop(node_id, None)
+        self._geracao.pop(node_id, None)
+        editor = self.editors.get(node_id)
+        if editor is not None:
+            editor.set_sending(False)
+        if self.current_node() is not None and self.current_node().get("id") == node_id:
+            self.response.clear()
+            self.response.pretty.edit.setPlaceholderText(
+                "envio cancelado, nada foi gravado no historico"
+            )
+        self.registrar("envio cancelado por voce", "aviso", 5)
+
     def _finish_send(self, result: dict, node: dict, prepared, task) -> None:
         self._tasks.discard(task)
+        node_id = node.get("id")
+        if self._geracao.get(node_id) != task.geracao:
+            # cancelado, ou de um workspace que ja foi fechado
+            return
+        self._geracao.pop(node_id, None)
         self._on_response(result, node, prepared)
 
     def _on_response(self, result: dict, node: dict, prepared=None) -> None:
@@ -2001,7 +2194,9 @@ class MainWindow(QMainWindow):
             # por {{nome}} na hora de salvar um exemplo
             self.respostas[node_id] = (result, enviado, list(getattr(prepared, "secrets", []) or []))
         if self.current_node() is node:
-            self.response.show_response(result, enviado)
+            self.response.show_response(
+                result, enviado, "vivo", self.respostas[node_id][2] if node_id else None, node_id
+            )
 
         if self.jar is not None and prepared is not None and result.get("cookies"):
             self.jar.guardar(prepared.url, result["cookies"])
@@ -2026,7 +2221,10 @@ class MainWindow(QMainWindow):
                 f"{result['status']} em {result['elapsedMs']} ms", 5000
             )
         else:
-            self.statusBar().showMessage(result.get("error") or "falhou", 8000)
+            erro = result.get("error") or "falhou"
+            self.statusBar().showMessage(
+                engine.explicar_erro(erro, getattr(prepared, "url", "")) or erro, 9000
+            )
 
 
     def _passo_aba(self, passo: int) -> None:
@@ -2082,7 +2280,7 @@ class MainWindow(QMainWindow):
             return
         escolhido = Palette.escolher(itens, "Ir para request", self)
         if escolhido is not None:
-            self.side.setCurrentIndex(0)
+            self._ir_para_lateral(0)
             self.tree_panel.select(escolhido.payload.get("id"))
             self.open_request(escolhido.payload)
 
@@ -2100,8 +2298,8 @@ class MainWindow(QMainWindow):
             ("Ir para request", "Ctrl+P", self.goto_request),
             ("Variaveis", "Ctrl+E", self.open_variables),
             ("Ver historico", "Ctrl+H", lambda: self._ir_para_lateral(3)),
-            ("Ver ambientes", "", lambda: self.side.setCurrentIndex(2)),
-            ("Ver favoritos", "", lambda: self.side.setCurrentIndex(1)),
+            ("Ver ambientes", "", lambda: self._ir_para_lateral(2)),
+            ("Ver favoritos", "", lambda: self._ir_para_lateral(1)),
             ("Ver servidores SFTP", "", lambda: self._ir_para_lateral(4)),
             ("Cadastrar servidor SFTP", "", self.sftp_novo),
             ("Favoritar o request aberto", "Ctrl+Shift+F", self.toggle_favorite),
@@ -2123,7 +2321,7 @@ class MainWindow(QMainWindow):
             ("Fechar a aba atual", "Ctrl+W", self.fechar_aba_atual),
             ("Mostrar ou esconder a lateral", "Ctrl+B", self._alternar_lateral),
             ("Reconstruir o indice do historico", "", self.rebuild_history_index),
-            ("Expurgar historico antigo", "", self.purge_history),
+            (f"Apagar corpos do historico com mais de {DIAS_CORPO} dias", "", self.purge_history),
             ("Limpar todo o historico", "", self.clear_history),
             ("Atalhos de teclado", "F1", self.show_shortcuts),
         ]
@@ -2168,12 +2366,8 @@ class MainWindow(QMainWindow):
 
         self.mark_dirty()
         self._refresh_var_hints()
-        for node_id, ed in self.editors.items():
-            config, origem = auth.efetiva(ed.request, self.ancestry_of(ed.request))
-            ed.set_heranca_auth(
-                "" if origem == "deste request"
-                else f"vem de {origem}: {auth.TIPOS.get(config.get('type'), '')}"
-            )
+        for ed in self.editors.values():
+            ed.set_heranca_auth(self._texto_heranca(ed.request))
 
     def open_certs(self) -> None:
         from .certs_dialog import CertsDialog
@@ -2240,9 +2434,10 @@ class MainWindow(QMainWindow):
         self._reload_envs()
         self.mark_dirty()
 
+        entraram = "entrou" if contagem["collections"] + contagem["ambientes"] == 1 else "entraram"
         recado = (
-            f"{dialogo.resultado.formato}: {contagem['collections']} collections e "
-            f"{contagem['ambientes']} ambientes entraram"
+            f"{dialogo.resultado.formato}: {conta(contagem['collections'], 'collection', 'collections')} e "
+            f"{conta(contagem['ambientes'], 'ambiente', 'ambientes')} {entraram}"
         )
         if contagem["renomeados"]:
             recado += f", {contagem['renomeados']} renomeados por nome repetido"
@@ -2288,33 +2483,61 @@ class MainWindow(QMainWindow):
         aviso = ""
         if dialogo.com_segredo.isChecked():
             aviso = "  Atencao: este arquivo contem credencial de verdade."
+        # no Postman os ambientes saem em arquivos proprios ao lado da collection, e sem
+        # esta parte ninguem sabia que a pasta tinha ganho mais arquivos
+        ambientes = len(self.tree_data.get("environments") or [])
+        junto = ""
+        if ambientes and dialogo.formato == "postman":
+            junto = f", com {conta(ambientes, 'ambiente', 'ambientes')} na mesma pasta"
         self.statusBar().showMessage(
-            f"{len(colecoes)} collections exportadas para {saida}.{aviso}", 12000
+            f"{conta(len(colecoes), 'collection exportada', 'collections exportadas')} "
+            f"para {saida}{junto}.{aviso}",
+            12000,
         )
 
     def importar_curl(self, texto: str = "", node: dict | None = None) -> None:
         """Cola um curl e monta o request inteiro por cima do que estava."""
         from .curl_dialog import CurlDialog
 
-        alvo = node or self.current_node()
-        if alvo is None:
-            # sem request aberto, cria um novo pra receber o comando
-            destino = self._destino_para_novo()
-            if destino is None:
-                self.statusBar().showMessage(
-                    "abra um request ou selecione a collection onde ele deve nascer", 5000
-                )
-                return
-            alvo = self.tree_panel.add_child(destino, "request")
-            self.open_request(alvo)
+        from ..core import curl_import
 
-        dados = CurlDialog.pedir(texto, alvo.get("name") or "", self)
+        alvo = node or self.current_node()
+        destino = None
+        if alvo is None:
+            # sem request aberto, o request novo so nasce depois do curl aceito: criado
+            # antes, cancelar deixava um Novo request vazio na arvore
+            destino = self._destino_ou_colecao_nova()
+            if destino is None:
+                if self.tree_data.get("collections"):
+                    self.statusBar().showMessage(
+                        "abra um request ou selecione a collection onde ele deve nascer", 5000
+                    )
+                return
+
+        dados = CurlDialog.pedir(texto, (alvo or {}).get("name") or "", self)
         if dados is None:
             return
 
-        self.tree_panel.guardar_estado(f"importar curl em {alvo.get('name')}")
-        from ..core import curl_import
+        if alvo is None:
+            self._ir_para_lateral(0)
+            alvo = self.tree_panel.add_child(destino, "request")
+            self.tree_panel._nomeando = None
+            # o curl entra no item antes de a aba tirar a copia dela; aplicado depois, a
+            # aba abria vazia e o Ctrl+S gravava a copia vazia por cima do importado
+            curl_import.aplicar(alvo, dados)
+            caminho = urlsplit(alvo.get("url") or "").path.rstrip("/")
+            alvo["name"] = f"{alvo.get('method') or 'GET'} {caminho or '/'}"
+            self.tree_panel.refresh(keep_selection=alvo.get("id"))
+            self.open_request(alvo)
+            self.mark_dirty()
+            self.statusBar().showMessage(
+                f"curl importado num request novo: {dados.resumo()}"
+                + (f".  Ficou de fora: {', '.join(dados.ignorados)}" if dados.ignorados else ""),
+                9000,
+            )
+            return
 
+        self.tree_panel.guardar_estado(f"importar curl em {alvo.get('name')}")
         curl_import.aplicar(alvo, dados)
 
         editor = self.editors.get(alvo.get("id"))
@@ -2342,10 +2565,24 @@ class MainWindow(QMainWindow):
         if editor is None or real is None:
             self.statusBar().showMessage("abra um request pra salvar um exemplo", 4000)
             return
-        guardado = self.respostas.get(real.get("id"))
-        if not guardado:
+        # O que esta na tela, e nao a ultima resposta ao vivo: com uma execucao do
+        # historico aberta, o exemplo gravado era o envio de agora.
+        exibido = self.response.exibido
+        if exibido and exibido.get("origem") == "exemplo":
+            self.statusBar().showMessage("isto ja e um exemplo guardado", 4000)
+            return
+        if not exibido:
             self.statusBar().showMessage("envie o request antes de salvar a resposta", 4000)
             return
+        if exibido.get("dono") != real.get("id"):
+            # Execucao de outro request aberta pelo historico, ou reenvio de um request que
+            # ja saiu da arvore: cair na ultima resposta desta aba gravava o que nao estava
+            # na tela.
+            self.statusBar().showMessage(
+                "a resposta na tela e de outro request. Abra a aba dele pra guardar o exemplo", 5000
+            )
+            return
+        guardado = (exibido["dados"], exibido["enviado"], exibido["ledger"])
 
         resultado, enviado, ledger = (list(guardado) + [None, None])[:3]
         padrao = f"{resultado.get('status') or ''} {resultado.get('reason') or ''}".strip()
@@ -2545,10 +2782,12 @@ class MainWindow(QMainWindow):
             return
 
         mapa = self.variables_for(node)
-        editor = self.editors.get(node.get("id"))
-        usadas = editor.used_vars() if editor else list(mapa)
-        tem_segredo = any(mapa.get(nome) is not None and mapa[nome].secret for nome in usadas)
         linhagem = self.ancestry_of(node)
+        # Pelo proprio envio, com o mapa inteiro e sem rede: olhar so url, params, headers
+        # e corpo deixava de fora a Auth, propria ou herdada, e a tela dizia que nao havia
+        # segredo com um Bearer {{token}} secreto logo ali.
+        teste = engine.prepare(node, scopes.as_plain(mapa), ancestry=linhagem, rede=False)
+        tem_segredo = bool(teste.secrets)
 
         def construir(revelar: bool):
             plano = {}
@@ -2599,10 +2838,24 @@ class MainWindow(QMainWindow):
         return linhas
 
     def show_shortcuts(self) -> None:
-        corpo = "<table cellspacing='6'>" + "".join(
-            f"<tr><td><b style='color:{theme.ACCENT};font-family:Consolas'>{tecla}</b></td>"
-            f"<td style='color:{theme.TEXT}'>&nbsp;&nbsp;{texto}</td></tr>"
-            for tecla, texto in self._atalhos_da_janela()
+        # Em duas colunas: numa so, as trinta e poucas linhas davam uma caixa de 800
+        # pixels, e num notebook de 768 o OK ficava fora da tela.
+        atalhos = self._atalhos_da_janela()
+        metade = (len(atalhos) + 1) // 2
+
+        def celulas(par) -> str:
+            if par is None:
+                return "<td></td><td></td>"
+            tecla, texto = par
+            return (
+                f"<td><b style='color:{theme.ACCENT};font-family:Consolas'>{tecla}</b></td>"
+                f"<td style='color:{theme.TEXT}'>&nbsp;&nbsp;{texto}&nbsp;&nbsp;&nbsp;&nbsp;</td>"
+            )
+
+        corpo = "<table cellspacing='5'>" + "".join(
+            "<tr>" + celulas(atalhos[i])
+            + celulas(atalhos[i + metade] if i + metade < len(atalhos) else None) + "</tr>"
+            for i in range(metade)
         ) + "</table>"
         QMessageBox.information(self, "Atalhos de teclado", corpo)
 
@@ -2610,6 +2863,11 @@ class MainWindow(QMainWindow):
     def show_history_response(self, entry: dict) -> None:
         """Mostra a resposta gravada no mesmo viewer, sem reenviar nada."""
         response = entry.get("response") or {}
+        # com aba de ambiente ou de SFTP na frente o painel estava escondido, e clicar
+        # numa linha do historico nao mostrava nada
+        self.response.setVisible(True)
+        ts = entry.get("ts") or ""
+        rotulo = f"historico: {ts[8:10]}/{ts[5:7]} {ts[11:16]}" if len(ts) >= 16 else "historico"
         self.response.show_response(
             {
                 "ok": response.get("ok"),
@@ -2627,6 +2885,10 @@ class MainWindow(QMainWindow):
                 "headers": dict((entry.get("request") or {}).get("headers") or []),
                 "body": (entry.get("request") or {}).get("body", ""),
             },
+            "historico",
+            [],
+            entry.get("requestId"),
+            rotulo,
         )
         self.statusBar().showMessage(f"execucao de {entry.get('ts', '')}, so leitura", 5000)
 
@@ -2639,7 +2901,16 @@ class MainWindow(QMainWindow):
         if not alvo:
             self.statusBar().showMessage("esse request nao existe mais na arvore", 5000)
             return
-        self.side.setCurrentIndex(0)
+        self._ir_para_lateral(0)
+        self.tree_panel.select(request_id)
+        self.open_request(alvo)
+
+    def _abrir_favorito(self, request_id: str) -> None:
+        """Favorito abre sem levar a lateral embora: a lista serve de atalho pro proximo."""
+        alvo = next((n for n in self.tree_panel._iter_nodes() if n.get("id") == request_id), None)
+        if alvo is None:
+            self.statusBar().showMessage("esse request nao existe mais na arvore", 5000)
+            return
         self.tree_panel.select(request_id)
         self.open_request(alvo)
 
@@ -2648,7 +2919,42 @@ class MainWindow(QMainWindow):
             return
         entry = self.history.get(entry_id)
         if not entry:
-            return
+            # o corpo ja foi expurgado, mas metodo e url continuam no indice
+            resumo = self.history.resumo(entry_id)
+            if resumo is None:
+                return
+            from .history_panel import entrada_do_resumo
+
+            entry = entrada_do_resumo(resumo)
+
+        # O envio usa o ambiente ativo de agora. Execucao de ontem em hml, reenviada com
+        # prd ativo hoje, ia pra producao sem ninguem perceber.
+        gravado_env = entry.get("env") or ""
+        atual_env = self.env_combo.currentText() if self.env_combo.currentData() else ""
+        if gravado_env and gravado_env != "sem ambiente" and gravado_env != atual_env:
+            caixa = QMessageBox(self)
+            caixa.setWindowTitle("Enviar de novo")
+            caixa.setText(
+                f"Essa execucao foi no ambiente {gravado_env} e o ativo agora e "
+                f"{atual_env or 'nenhum'}."
+            )
+            indice_env = self.env_combo.findText(gravado_env)
+            trocar = None
+            if indice_env > 0:
+                trocar = caixa.addButton(
+                    f"Trocar pra {gravado_env} e enviar", QMessageBox.ButtonRole.AcceptRole
+                )
+            ficar = caixa.addButton(
+                f"Enviar em {atual_env or 'nenhum ambiente'}", QMessageBox.ButtonRole.DestructiveRole
+            )
+            cancelar = caixa.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+            caixa.setDefaultButton(cancelar)
+            caixa.exec()
+            clicado = caixa.clickedButton()
+            if clicado is trocar and trocar is not None:
+                self.env_combo.setCurrentIndex(indice_env)
+            elif clicado is not ficar:
+                return
 
         alvo = None
         if entry.get("requestId"):
@@ -2664,6 +2970,17 @@ class MainWindow(QMainWindow):
 
         # o request original sumiu, entao reenvia a partir do que ficou gravado
         gravado = entry.get("request") or {}
+        metodo_gravado = (gravado.get("method") or "GET").upper()
+        if entry.get("semCorpo") and metodo_gravado not in ("GET", "HEAD"):
+            # Do expurgado sobrou metodo e url. Um POST ou PUT sem o corpo e sem os headers
+            # de antes nao repete a chamada, manda outra coisa pro mesmo endereco.
+            self.statusBar().showMessage(
+                f"corpo e headers desta execucao foram apagados depois de {DIAS_CORPO} dias, e "
+                f"o request dela saiu da arvore: um {metodo_gravado} so com a url nao seria a "
+                "mesma chamada",
+                8000,
+            )
+            return
         headers = []
         mascarados = []
         for key, value in gravado.get("headers") or []:
@@ -2684,9 +3001,12 @@ class MainWindow(QMainWindow):
         }
         prepared = engine.prepare(avulso, scopes.as_plain(self.variables_for(None)))
         aviso = f", sem os headers {', '.join(mascarados)}" if mascarados else ""
+        if entry.get("semCorpo"):
+            aviso += ", so com metodo e url: os headers dela ja foram apagados"
         self.statusBar().showMessage(f"reenviando execucao antiga{aviso}")
 
         task = SendTask(prepared, avulso)
+        task.workspace = self.workspace_id
         self._tasks.add(task)
         task.signals.done.connect(
             lambda result, item, p=prepared, t=task: self._finish_replay(result, item, p, t)
@@ -2695,9 +3015,13 @@ class MainWindow(QMainWindow):
 
     def _finish_replay(self, result: dict, node: dict, prepared, task) -> None:
         self._tasks.discard(task)
+        if getattr(task, "workspace", self.workspace_id) != self.workspace_id:
+            # o workspace trocou no meio da espera: a resposta iria pro historico do outro
+            return
         self._on_replay_done(result, node, prepared)
 
     def _on_replay_done(self, result: dict, node: dict, prepared) -> None:
+        self.response.setVisible(True)
         self.response.show_response(result, self._sent_view(prepared))
         if self.history:
             self.history.record(
@@ -2722,8 +3046,10 @@ class MainWindow(QMainWindow):
         resultado = self.history.purge()
         self.history_panel.reload()
         self.statusBar().showMessage(
-            f"expurgo: {resultado['arquivos']} arquivos de log e {resultado['registros']} registros",
-            6000,
+            f"apagados {conta(resultado['arquivos'], 'dia de corpo', 'dias de corpo')} com mais de "
+            f"{DIAS_CORPO} dias e {conta(resultado['registros'], 'resumo', 'resumos')} com mais "
+            f"de {DIAS_RESUMO} dias",
+            8000,
         )
 
     def clear_history(self) -> None:
@@ -2792,7 +3118,7 @@ class MainWindow(QMainWindow):
         if conflitos:
             quantos = len(conflitos)
             self.statusBar().showMessage(
-                f"salvo, mas {quantos} arquivo(s) tinham mudado por fora. "
+                f"salvo, mas {conta(quantos, 'arquivo tinha', 'arquivos tinham')} mudado por fora. "
                 f"Copia guardada em .conduit/conflitos", 12000
             )
             QMessageBox.warning(
@@ -2903,7 +3229,12 @@ class MainWindow(QMainWindow):
         perfil = self._sftp_perfil(perfil_id)
         if perfil is None:
             return
-        dialogo = PerfilDialog.pedir(perfil, self)
+        guardada = False
+        if self.workspace_id:
+            cofre = ws.cofre(self.workspace_id)
+            guardada = bool(cofre.get(sftp.CHAVE_SENHA.format(id=perfil_id))
+                            or cofre.get(sftp.CHAVE_FRASE.format(id=perfil_id)))
+        dialogo = PerfilDialog.pedir(perfil, self, guardada)
         if dialogo is None:
             return
         perfis = [dialogo.perfil if p.id == perfil_id else p for p in sftp.listar_perfis(self.tree_data)]
@@ -3029,8 +3360,14 @@ class MainWindow(QMainWindow):
 
         cofre = ws.cofre(self.workspace_id)
         guardar_senha = guardar_frase = False
+        senha_do_cofre = False
+        if getattr(self, "_sftp_senha_pendente", False) and senha:
+            # a senha nova veio da pergunta depois de a guardada ser recusada
+            guardar_senha = True
+            self._sftp_senha_pendente = False
         if perfil.auth == "senha" and not senha:
             senha = cofre.get(sftp.CHAVE_SENHA.format(id=perfil.id))
+            senha_do_cofre = bool(senha)
             if not senha:
                 senha, guardar_senha = SenhaDialog.pedir(perfil, frase=False, parent=self)
                 if not senha:
@@ -3056,9 +3393,12 @@ class MainWindow(QMainWindow):
 
         def deu_errado(erro) -> None:
             self._sftp_conectando.discard(perfil_id)
+            # a senha que veio do cofre nao segue adiante: relida la na volta, ela continua
+            # marcada como guardada, e a recusa dela pergunta de novo
+            senha_seguinte = "" if senha_do_cofre else senha
             if isinstance(erro, (sftp.ChaveDesconhecida, sftp.ChaveTrocada)):
                 if ChaveDialog.confia(erro, self):
-                    self.sftp_abrir(perfil_id, senha, frase, confiar=True)
+                    self.sftp_abrir(perfil_id, senha_seguinte, frase, confiar=True)
                 else:
                     self.statusBar().showMessage("conexao cancelada, chave nao aceita", 6000)
                 return
@@ -3066,7 +3406,17 @@ class MainWindow(QMainWindow):
                 nova, guardar = SenhaDialog.pedir(perfil, frase=True, parent=self)
                 if nova:
                     self._sftp_frase_pendente = guardar
-                    self.sftp_abrir(perfil_id, senha, nova, confiar)
+                    self.sftp_abrir(perfil_id, senha_seguinte, nova, confiar)
+                return
+            if senha_do_cofre and isinstance(erro, sftp.ErroSftp) and "recusad" in str(erro):
+                # A senha guardada mudou no servidor. Sem perguntar de novo, cada duplo
+                # clique repetia a mesma senha recusada. So pergunta em falha de credencial:
+                # host fora do ar nao e motivo pra pedir senha.
+                self.statusBar().showMessage(f"{perfil.nome}: a senha guardada foi recusada", 6000)
+                nova, guardar = SenhaDialog.pedir(perfil, frase=False, parent=self)
+                if nova:
+                    self._sftp_senha_pendente = guardar
+                    self.sftp_abrir(perfil_id, nova, frase, confiar)
                 return
             self.statusBar().showMessage(f"{perfil.nome}: {erro}", 9000)
             self.registrar(f"sftp {perfil.rotulo()}: {erro}", "erro", 0)
@@ -3089,6 +3439,10 @@ class MainWindow(QMainWindow):
 
         navegador = SftpBrowser(conexao)
         navegador.recado.connect(lambda texto, ms: self.statusBar().showMessage(texto, ms))
+        navegador.caiu.connect(lambda i=perfil.id: self.sftp_panel.marcar_ligado(i, False))
+        navegador.reconectar_pedido.connect(
+            lambda caminho, i=perfil.id: self._sftp_reconectar(i, caminho)
+        )
         self.sftp_abas[perfil.id] = navegador
 
         indice = self.tabs.addTab(navegador, perfil.nome)
@@ -3099,9 +3453,15 @@ class MainWindow(QMainWindow):
         self.response.setVisible(False)
 
         self.sftp_panel.marcar_ligado(perfil.id, True)
-        navegador.comecar()
+        navegador.comecar(self._sftp_voltar.pop(perfil.id, ""))
         self.registrar(f"sftp conectado em {perfil.rotulo()}", "ok", 0)
         self.statusBar().showMessage(f"conectado em {perfil.rotulo()}", 5000)
+
+    def _sftp_reconectar(self, perfil_id: str, caminho: str) -> None:
+        """Fecha a aba da sessao que caiu e conecta de novo, voltando pra mesma pasta."""
+        self._sftp_voltar[perfil_id] = caminho
+        self.sftp_desconectar(perfil_id)
+        self.sftp_abrir(perfil_id)
 
     def show_about(self) -> None:
         from .icon import render

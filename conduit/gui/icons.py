@@ -421,6 +421,29 @@ def icone_codigo(cor: str = "") -> QIcon:
     return _guardar(chave, pix)
 
 
+def icone_lateral(cor: str = "") -> QIcon:
+    """Janela com a coluna da esquerda marcada: mostrar ou esconder a lateral.
+
+    No lugar dos caracteres de bloco, que na fonte do sistema viravam um retangulo
+    cinza macico parecendo cursor ou defeito de fonte.
+    """
+    cor = cor or theme.DIM
+    chave = f"lateral:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+    pix, painter = _tela(LADO, LADO)
+    _caneta(painter, cor, 1.4)
+    painter.drawRoundedRect(QRectF(2.6, 3.6, 12.8, 10.8), 2.2, 2.2)
+    painter.drawLine(QPointF(7.0, 3.8), QPointF(7.0, 14.2))
+    preenchido = QColor(cor)
+    preenchido.setAlpha(120)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(preenchido)
+    painter.drawRect(QRectF(3.3, 4.3, 3.7, 9.4))
+    painter.end()
+    return _guardar(chave, pix)
+
+
 def icone_visto(cor: str = "") -> QIcon:
     """Certo. So aparece no lugar do icone de copiar, pelo tempo de dizer que copiou."""
     cor = cor or theme.OK
@@ -486,6 +509,39 @@ def icone_arquivo(cor: str = "") -> QIcon:
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.drawPath(canto)
 
+    painter.end()
+    return _guardar(chave, pix)
+
+
+def icone_pasta(cor: str = "") -> QIcon:
+    """Pasta no quadro de 18 da folha, pra tabela do SFTP.
+
+    O folder_icon e da arvore: desenhado numa faixa de 52 por 18 e encostado a direita,
+    ele encolhia pra um borrao de tres pixels na celula de 16, e a pasta parecia um
+    marcador de lista ao lado dos arquivos.
+    """
+    cor = cor or theme.DIM
+    chave = f"pasta18:{cor}"
+    if chave in _cache:
+        return _cache[chave]
+
+    pix, painter = _tela(LADO, LADO)
+    base = QColor(cor)
+    aba = QColor(base)
+    aba.setAlpha(150)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(aba)
+    painter.drawRoundedRect(QRectF(2.2, 3.4, 6.4, 3.6), 1.2, 1.2)
+
+    corpo = QColor(base)
+    corpo.setAlpha(210)
+    contorno = QColor(base)
+    contorno.setAlpha(160)
+    caneta = QPen(contorno)
+    caneta.setWidthF(0.9)
+    painter.setPen(caneta)
+    painter.setBrush(corpo)
+    painter.drawRoundedRect(QRectF(2.2, 5.4, 13.6, 9.6), 2.0, 2.0)
     painter.end()
     return _guardar(chave, pix)
 

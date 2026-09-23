@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtGui import Qt as QtTexto
 from PySide6.QtWidgets import (
@@ -16,6 +16,72 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme, tokens
+
+
+def conta(quantos: int, um: str, muitos: str) -> str:
+    """Numero com a palavra no singular ou no plural, pra nao sair "1 secretas"."""
+    return f"{quantos} {um if quantos == 1 else muitos}"
+
+
+class Elastico(QLabel):
+    """Rotulo que encolhe ate sumir em vez de empurrar o painel.
+
+    Um QLabel comum entrega o texto inteiro como largura minima. Com uma url de cento e
+    poucos caracteres, o lado direito da janela passava a exigir quase dois mil pixels, e
+    o splitter tirava essa largura da arvore: bastava chegar uma resposta comprida pra
+    coluna da esquerda encolher sozinha. O rodape e a faixa de aviso tinham o mesmo
+    defeito: enviar pra uma url comprida alargava a janela inteira alem da tela.
+    """
+
+    def __init__(self, modo=Qt.TextElideMode.ElideRight, parent=None):
+        super().__init__(parent)
+        self._modo = modo
+        self._cheio = ""
+        self.setMinimumWidth(1)
+        # o que passa aqui vem do servidor, e texto com cara de tag viraria HTML, ver
+        # dica_de_fora
+        self.setTextFormat(Qt.TextFormat.PlainText)
+
+    def setText(self, texto: str) -> None:  # noqa: N802
+        self._cheio = texto or ""
+        self.setToolTip(dica_de_fora(self._cheio))
+        self._encaixar()
+        self.updateGeometry()
+
+    def texto_cheio(self) -> str:
+        return self._cheio
+
+    def sizeHint(self):  # noqa: N802
+        """O que ele gostaria de ter e a largura do texto inteiro.
+
+        Sem isso o rotulo pergunta o tamanho do texto ja cortado, que foi cortado no
+        tamanho que ele tinha, e a conta se fecha em zero: ele some da barra.
+        """
+        tamanho = super().sizeHint()
+        borda = self.rect().width() - self.contentsRect().width()
+        tamanho.setWidth(self.fontMetrics().horizontalAdvance(self._cheio) + 2 + borda)
+        return tamanho
+
+    def minimumSizeHint(self):  # noqa: N802
+        tamanho = super().minimumSizeHint()
+        tamanho.setWidth(1)
+        return tamanho
+
+    def resizeEvent(self, evento):  # noqa: N802
+        super().resizeEvent(evento)
+        self._encaixar()
+
+    def changeEvent(self, evento):  # noqa: N802
+        # a folha que troca o tamanho da letra chega depois do setText
+        super().changeEvent(evento)
+        if evento.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self._encaixar()
+
+    def _encaixar(self) -> None:
+        # a area de dentro, e nao a largura toda: com margem ou padding, o texto cortado
+        # pra largura toda passava da borda e perdia as reticencias
+        largura = max(0, self.contentsRect().width() - 2)
+        super().setText(self.fontMetrics().elidedText(self._cheio, self._modo, largura))
 
 
 class BadgeTabBar(QTabBar):
@@ -135,9 +201,10 @@ class Faixa(QWidget):
         self.bolinha.setFixedWidth(9)
         layout.addWidget(self.bolinha)
 
-        self.texto = QLabel("")
-        # o aviso repete nome de request de arquivo importado, ver dica_de_fora
-        self.texto.setTextFormat(Qt.TextFormat.PlainText)
+        # Elastico: com cinco variaveis sem dono, o aviso pedia 862 pixels e a janela nao
+        # encolhia abaixo de 1087. Texto de fora, como nome de request importado, fica
+        # como texto puro, ver dica_de_fora.
+        self.texto = Elastico()
         self.texto.setStyleSheet("font-size: 8pt;")
         layout.addWidget(self.texto, 1)
 
