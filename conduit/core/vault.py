@@ -26,7 +26,9 @@ import ctypes
 import json
 import os
 import secrets
+import threading
 from ctypes import wintypes
+from datetime import datetime
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -36,6 +38,10 @@ ARQUIVO = "vault.dbx"
 # Entropia do DPAPI. Nao se troca junto com o nome do programa: ela entra na
 # derivacao e mudar o valor torna ilegivel todo cofre ja gravado.
 ENTROPIA = b"dbxwire-vault-v1"
+
+# Um cadeado pro processo inteiro, e nao por instancia: cada tela abre o seu Vault, e o
+# envio grava o token do OAuth2 de uma thread do pool enquanto a interface salva.
+_TRAVA = threading.RLock()
 
 
 class _BLOB(ctypes.Structure):
@@ -102,22 +108,25 @@ class Vault:
         if self._dados is not None:
             return self._dados
 
-        if not self.caminho.exists():
-            self._dados = {}
-            return self._dados
+        # no Windows o replace de quem grava falha se outra thread esta com o arquivo
+        # aberto pra ler, entao a leitura do disco tambem passa pelo cadeado
+        with _TRAVA:
+            if not self.caminho.exists():
+                self._dados = {}
+                return self._dados
 
-        try:
-            envelope = json.loads(self.caminho.read_text(encoding="utf-8"))
-            chave = desproteger(base64.b64decode(envelope["wrappedKey"]))
-            nonce = base64.b64decode(envelope["nonce"])
-            corpo = base64.b64decode(envelope["ciphertext"])
-            claro = AESGCM(chave).decrypt(nonce, corpo, ENTROPIA)
-            self._dados = json.loads(claro.decode("utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            # cofre de outra conta Windows, arquivo corrompido, ou provedor indisponivel
-            self._erro = f"{type(exc).__name__}: {exc}"
-            self._dados = {}
-        return self._dados
+            try:
+                envelope = json.loads(self.caminho.read_text(encoding="utf-8"))
+                chave = desproteger(base64.b64decode(envelope["wrappedKey"]))
+                nonce = base64.b64decode(envelope["nonce"])
+                corpo = base64.b64decode(envelope["ciphertext"])
+                claro = AESGCM(chave).decrypt(nonce, corpo, ENTROPIA)
+                self._dados = json.loads(claro.decode("utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                # cofre de outra conta Windows, arquivo corrompido, ou provedor indisponivel
+                self._erro = f"{type(exc).__name__}: {exc}"
+                self._dados = {}
+            return self._dados
 
     def _gravar(self, dados: dict[str, str]) -> None:
         chave = self._nova_chave()
@@ -133,10 +142,29 @@ class Vault:
         }
 
         self.dir.mkdir(parents=True, exist_ok=True)
+        if self._erro and self.caminho.exists():
+            # Cofre que nao abriu nao e cofre vazio. Pode ser a DPAPI fora do ar por um
+            # momento, ou a chave mestra da conta ainda nao sincronizada depois de trocar a
+            # senha. Gravar por cima jogava fora todo segredo guardado, sem volta. O
+            # arquivo fica de lado, com a data no nome, pra ser aberto quando der.
+            copia = self.dir / f"{ARQUIVO}.ilegivel-{datetime.now():%Y%m%d-%H%M%S}"
+            self.caminho.replace(copia)
+            self._erro = None
         temporario = self.caminho.with_suffix(".tmp")
         temporario.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
         temporario.replace(self.caminho)
         self._dados = dict(dados)
+
+    def _para_alterar(self) -> dict[str, str]:
+        """O que esta no disco agora, e nao o que esta instancia leu la atras.
+
+        Cada tela pega o seu Vault. O de um dialogo aberto ha minutos nao sabe o que o
+        salvar automatico gravou nesse meio tempo, e gravar a partir dele apagava o
+        segredo que tinha acabado de entrar.
+        """
+        self._dados = None
+        self._erro = None
+        return dict(self._carregar())
 
 
     @property
@@ -152,35 +180,38 @@ class Vault:
         return self._carregar().get(chave, padrao)
 
     def set(self, chave: str, valor: str) -> None:
-        dados = dict(self._carregar())
-        if valor:
-            dados[chave] = valor
-        else:
-            dados.pop(chave, None)
-        self._gravar(dados)
-
-    def set_muitos(self, pares: dict[str, str]) -> int:
-        """Grava varios de uma vez, que e o caso da gravacao do workspace."""
-        dados = dict(self._carregar())
-        antes = dict(dados)
-        for chave, valor in pares.items():
+        with _TRAVA:
+            dados = self._para_alterar()
             if valor:
                 dados[chave] = valor
             else:
                 dados.pop(chave, None)
-        if dados == antes:
-            return 0
-        self._gravar(dados)
-        return len(dados)
+            self._gravar(dados)
+
+    def set_muitos(self, pares: dict[str, str]) -> int:
+        """Grava varios de uma vez, que e o caso da gravacao do workspace."""
+        with _TRAVA:
+            dados = self._para_alterar()
+            antes = dict(dados)
+            for chave, valor in pares.items():
+                if valor:
+                    dados[chave] = valor
+                else:
+                    dados.pop(chave, None)
+            if dados == antes:
+                return 0
+            self._gravar(dados)
+            return len(dados)
 
     def remover_prefixo(self, prefixo: str) -> int:
-        dados = dict(self._carregar())
-        alvos = [c for c in dados if c.startswith(prefixo)]
-        for chave in alvos:
-            dados.pop(chave)
-        if alvos:
-            self._gravar(dados)
-        return len(alvos)
+        with _TRAVA:
+            dados = self._para_alterar()
+            alvos = [c for c in dados if c.startswith(prefixo)]
+            for chave in alvos:
+                dados.pop(chave)
+            if alvos:
+                self._gravar(dados)
+            return len(alvos)
 
     def chaves(self) -> list[str]:
         return sorted(self._carregar())
