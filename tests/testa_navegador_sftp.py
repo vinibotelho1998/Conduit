@@ -156,6 +156,26 @@ def main() -> int:
     p.confere("reconecta", "gui1" in janela.sftp_abas)
     p.confere("nao pergunta a chave de novo", len(perguntas) == 1, str(len(perguntas)))
 
+    p.secao("duplo clique repetido enquanto conecta")
+    janela.sftp_desconectar("gui1")
+    girar(app, 10)
+    # os dois pedidos saem antes da primeira conexao voltar, como no servidor lento
+    janela.sftp_abrir("gui1")
+    janela.sftp_abrir("gui1")
+    p.confere("o segundo pedido nem abre outra conexao",
+              "a caminho" in janela.statusBar().currentMessage(), janela.statusBar().currentMessage())
+    girar(app)
+    abas_sftp = [janela.tabs.widget(i) for i in range(janela.tabs.count())
+                 if janela.tabs.widget(i).property("aba_tipo") == "sftp"]
+    # a segunda aba tomava o lugar da primeira no registro, e fechar a primeira nao
+    # encerrava a sessao dela
+    p.confere("abre uma aba so", len(abas_sftp) == 1, str(len(abas_sftp)))
+    for aba in abas_sftp:
+        janela.close_tab(janela.tabs.indexOf(aba))
+    girar(app, 10)
+    vivas = [aba for aba in abas_sftp if aba.conexao.aberta]
+    p.confere("fechar as abas encerra toda sessao aberta", not vivas, str(len(vivas)))
+
     for aberto in list(janela.sftp_abas.values()):
         aberto.encerrar()
     shutil.rmtree(raiz, ignore_errors=True)

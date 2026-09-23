@@ -16,6 +16,9 @@ from paramiko import SFTPAttributes, SFTPServer, SFTPServerInterface, SFTPHandle
 USUARIO = "vini"
 SENHA = "segredo-do-teste"
 
+# chaves publicas que o teste cadastra pra exercitar o login por chave privada
+CHAVES_ACEITAS: list = []
+
 
 class Servidor(paramiko.ServerInterface):
     def check_auth_password(self, username, password):
@@ -23,11 +26,16 @@ class Servidor(paramiko.ServerInterface):
             return paramiko.AUTH_SUCCESSFUL
         return paramiko.AUTH_FAILED
 
+    def check_auth_publickey(self, username, key):
+        if username == USUARIO and any(key.asbytes() == c.asbytes() for c in CHAVES_ACEITAS):
+            return paramiko.AUTH_SUCCESSFUL
+        return paramiko.AUTH_FAILED
+
     def check_channel_request(self, kind, chanid):
         return paramiko.OPEN_SUCCEEDED
 
     def get_allowed_auths(self, username):
-        return "password"
+        return "password,publickey"
 
 
 class Handle(SFTPHandle):
@@ -122,8 +130,11 @@ class Interface(SFTPServerInterface):
         return "/" + os.path.normpath(path).replace("\\", "/").lstrip("/")
 
 
-def subir(raiz: str) -> int:
-    """Sobe o servidor numa porta livre e devolve a porta."""
+def subir(raiz: str, com_sftp: bool = True) -> int:
+    """Sobe o servidor numa porta livre e devolve a porta.
+
+    Sem SFTP ele aceita o login e recusa o subsistema, como servidor que so da shell.
+    """
     Interface.RAIZ = raiz
     chave = paramiko.RSAKey.generate(2048)
 
@@ -141,7 +152,8 @@ def subir(raiz: str) -> int:
                 return
             transporte = paramiko.Transport(canal)
             transporte.add_server_key(chave)
-            transporte.set_subsystem_handler("sftp", SFTPServer, Interface)
+            if com_sftp:
+                transporte.set_subsystem_handler("sftp", SFTPServer, Interface)
             try:
                 transporte.start_server(server=Servidor())
             except Exception:

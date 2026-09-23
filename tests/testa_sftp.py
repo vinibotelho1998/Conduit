@@ -8,9 +8,12 @@ comportamento do rename quando o destino ja existe.
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 from comum import Placar  # noqa: E402  (comum ajusta o sys.path)
@@ -163,6 +166,128 @@ def main() -> int:
 
     conexao.fechar()
     p.confere("fecha", not conexao.aberta)
+
+    p.secao("chave privada")
+    import paramiko
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    pasta_chaves = raiz / "chaves"
+    pasta_chaves.mkdir()
+    privada = ed25519.Ed25519PrivateKey.generate()
+    sem_frase = pasta_chaves / "id_ed25519"
+    sem_frase.write_bytes(privada.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+        serialization.NoEncryption(),
+    ))
+    com_frase = pasta_chaves / "id_ed25519_frase"
+    com_frase.write_bytes(privada.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+        serialization.BestAvailableEncryption(b"frase-do-teste"),
+    ))
+
+    # A lista de tipos citava paramiko.DSSKey, que saiu na versao 4: toda chave estourava
+    # AttributeError antes de ser lida, e o login por chave nao funcionava pra ninguem.
+    try:
+        lida = sftp._carregar_chave(str(sem_frase), "")
+        p.confere("le chave ed25519 sem frase", lida.get_name() == "ssh-ed25519", lida.get_name())
+    except Exception as erro:  # noqa: BLE001
+        p.confere("le chave ed25519 sem frase", False, f"{type(erro).__name__}: {erro}")
+    try:
+        sftp._carregar_chave(str(com_frase), "")
+        p.confere("chave com frase pede a frase", False)
+    except sftp.ErroSftp as erro:
+        p.confere("chave com frase pede a frase", "frase secreta" in str(erro), str(erro))
+    except Exception as erro:  # noqa: BLE001
+        p.confere("chave com frase pede a frase", False, f"{type(erro).__name__}: {erro}")
+    try:
+        p.confere("abre com a frase certa", sftp._carregar_chave(str(com_frase), "frase-do-teste") is not None)
+    except Exception as erro:  # noqa: BLE001
+        p.confere("abre com a frase certa", False, f"{type(erro).__name__}: {erro}")
+
+    servidor_falso.CHAVES_ACEITAS.append(paramiko.Ed25519Key.from_private_key_file(str(sem_frase)))
+    por_chave = sftp.Conexao(
+        sftp.Perfil(id="t2", nome="por chave", host="127.0.0.1", porta=porta,
+                    usuario=servidor_falso.USUARIO, auth="chave", chave=str(sem_frase)),
+        known,
+    )
+    try:
+        por_chave.abrir()
+        p.confere("conecta no servidor com chave privada", por_chave.aberta)
+    except Exception as erro:  # noqa: BLE001
+        p.confere("conecta no servidor com chave privada", False, f"{type(erro).__name__}: {erro}")
+    por_chave.fechar()
+
+    p.secao("fechar no meio de uma transferencia")
+    (raiz / "grande.bin").write_bytes(os.urandom(3 * 1024 * 1024))
+    lenta = sftp.Conexao(perfil, known)
+    lenta.abrir(senha=servidor_falso.SENHA)
+    estouros: list = []
+
+    def baixar_devagar() -> None:
+        try:
+            lenta.baixar("/grande.bin", raiz / "lento" / "grande.bin",
+                         progresso=lambda feito, total: time.sleep(0.05))
+        except Exception as erro:  # noqa: BLE001
+            estouros.append(erro)
+
+    fio = threading.Thread(target=baixar_devagar)
+    fio.start()
+    time.sleep(0.4)
+    comeco = time.perf_counter()
+    lenta.fechar()
+    gasto = time.perf_counter() - comeco
+    fio.join(60)
+    # O fechar pegava o mesmo cadeado da transferencia e esperava ela acabar, com a
+    # janela congelada. Servidor que parou de responder congelava pra sempre.
+    p.confere("fechar nao espera a transferencia acabar", gasto < 1.0, f"{gasto:.2f} s")
+    p.confere("transferencia cortada vira ErroSftp",
+              len(estouros) == 1 and isinstance(estouros[0], sftp.ErroSftp), repr(estouros))
+    sobras = [a.name for a in (raiz / "lento").glob("*")] if (raiz / "lento").exists() else []
+    p.confere("nao sobra .parcial nem arquivo pela metade", not sobras, str(sobras))
+
+    p.secao("servidor que aceita o login e recusa o SFTP")
+    porta_shell = servidor_falso.subir(str(raiz), com_sftp=False)
+    so_shell = sftp.Conexao(
+        sftp.Perfil(id="t3", nome="so shell", host="127.0.0.1", porta=porta_shell,
+                    usuario=servidor_falso.USUARIO, auth="senha"),
+        known,
+    )
+    try:
+        so_shell.abrir(senha=servidor_falso.SENHA, confiar=True)
+        p.confere("recusa do subsistema vira ErroSftp", False, "abriu")
+    except sftp.ErroSftp as erro:
+        p.confere("recusa do subsistema vira ErroSftp", "SFTP" in str(erro), str(erro))
+    except Exception as erro:  # noqa: BLE001
+        p.confere("recusa do subsistema vira ErroSftp", False, f"{type(erro).__name__}: {erro}")
+    # sem fechar, o transporte seguia vivo com a thread e o socket dele, sem aba nenhuma
+    p.confere("e a sessao SSH nao fica aberta", not so_shell.aberta)
+
+    p.secao("nome de arquivo que vem do servidor")
+    pasta_local = raiz / "lote"
+    for nome in ("..\\..\\fora.bat", "../fora.txt", "C:\\Windows\\x.dll", "..", ".", "...", "relatorio 12:30.csv"):
+        try:
+            alvo = sftp.destino_local(pasta_local, nome)
+            ok = alvo.parent == pasta_local and ":" not in alvo.name and alvo.name not in ("", ".", "..")
+            p.confere(f"{nome!r} fica dentro da pasta escolhida", ok, str(alvo))
+        except Exception as erro:  # noqa: BLE001
+            p.confere(f"{nome!r} fica dentro da pasta escolhida", False, f"{type(erro).__name__}: {erro}")
+    try:
+        p.confere("nome de dispositivo do Windows nao vira dispositivo",
+                  sftp.nome_local("NUL").lower() != "nul" and sftp.nome_local("con.txt").lower() != "con.txt",
+                  f"{sftp.nome_local('NUL')} {sftp.nome_local('con.txt')}")
+        # o Windows ainda le estes como dispositivo: espaco antes do ponto, o console e
+        # o numero sobrescrito
+        estranhos = ["nul .txt", "CONIN$", "conout$.log", "COM¹.csv"]
+        reservado = getattr(os.path, "isreserved", lambda nome: nome in estranhos)
+        ainda = [n for n in estranhos if reservado(sftp.nome_local(n))]
+        p.confere("variantes de dispositivo tambem viram arquivo comum", not ainda, str(ainda))
+        p.confere("nome comum passa igual", sftp.nome_local("retorno 2026.csv") == "retorno 2026.csv")
+        # o ponto do comeco e o do arquivo oculto: tirado, o .env baixava como env
+        ocultos = [sftp.nome_local(n) for n in (".env", ".htaccess")]
+        p.confere("arquivo oculto do servidor mantem o ponto", ocultos == [".env", ".htaccess"], str(ocultos))
+    except Exception as erro:  # noqa: BLE001
+        p.confere("nome local existe", False, f"{type(erro).__name__}: {erro}")
 
     shutil.rmtree(raiz, ignore_errors=True)
     return p.fechar()
