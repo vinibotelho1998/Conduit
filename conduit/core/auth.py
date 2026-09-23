@@ -33,6 +33,10 @@ TIPOS = {
 # margem antes de expirar, pra nao mandar request com token vencendo no caminho
 FOLGA_SEGUNDOS = 30
 
+# O que ocupa o lugar do token do OAuth2 enquanto ele nao foi pedido. Copiar como curl e
+# gerar codigo nao vao a rede, entao e isto que aparece la, no padrao {{nome}} do app.
+TOKEN_PENDENTE = "{{oauth2_token}}"
+
 
 @dataclass
 class AuthAplicada:
@@ -43,6 +47,9 @@ class AuthAplicada:
     secrets: list[tuple[str, str]] = field(default_factory=list)
     erro: str | None = None
     detalhe: str = ""
+    # OAuth2 sem token no cofre numa chamada que nao podia ir a rede. Quem envia completa
+    # depois, de fora da thread da interface, com engine.completar_auth.
+    pendente: dict | None = None
 
 
 def efetiva(node: dict, ancestry: list[dict] | None) -> tuple[dict, str]:
@@ -66,8 +73,13 @@ def _tomar(texto: str, variaveis: dict, ledger: list) -> str:
     return resultado.text
 
 
-def aplicar(config: dict, variaveis: dict, cofre=None) -> AuthAplicada:
-    """Monta header e query da auth escolhida. Nao toca no request, so devolve o que sai."""
+def aplicar(config: dict, variaveis: dict, cofre=None, rede: bool = True) -> AuthAplicada:
+    """Monta header e query da auth escolhida. Nao toca no request, so devolve o que sai.
+
+    Com `rede` desligada o OAuth2 so usa o token guardado no cofre. Pedir um token novo
+    e uma chamada ao provedor que pode levar ate trinta segundos, e feita da thread da
+    interface ela congelava a janela no envio, no copiar como curl e no gerar codigo.
+    """
     tipo = (config or {}).get("type") or "none"
     saida = AuthAplicada(tipo=tipo)
     ledger: list = []
@@ -111,11 +123,16 @@ def aplicar(config: dict, variaveis: dict, cofre=None) -> AuthAplicada:
             ledger.append(("auth.apikey", valor))
 
     elif tipo == "oauth2":
-        token, erro, detalhe = token_oauth2(config, variaveis, ledger, cofre)
+        token, erro, detalhe = token_oauth2(config, variaveis, ledger, cofre, rede)
+        prefixo = config.get("prefix") or "Bearer"
         if erro:
             saida.erro = erro
+        elif not token:
+            marca = f"{prefixo} {TOKEN_PENDENTE}"
+            saida.headers["Authorization"] = marca
+            saida.detalhe = detalhe
+            saida.pendente = {"config": config, "variaveis": variaveis, "cofre": cofre, "marca": marca}
         else:
-            prefixo = config.get("prefix") or "Bearer"
             saida.headers["Authorization"] = f"{prefixo} {token}"
             saida.detalhe = detalhe
             ledger.append(("auth.oauth2", token))
@@ -129,7 +146,9 @@ def _assinatura(config: dict, url: str, client_id: str, escopo: str) -> str:
     return "oauth:" + hashlib.sha256(bruto.encode("utf-8")).hexdigest()[:24]
 
 
-def token_oauth2(config: dict, variaveis: dict, ledger: list, cofre=None) -> tuple[str, str | None, str]:
+def token_oauth2(
+    config: dict, variaveis: dict, ledger: list, cofre=None, rede: bool = True
+) -> tuple[str, str | None, str]:
     url = _tomar(config.get("tokenUrl"), variaveis, ledger)
     client_id = _tomar(config.get("clientId"), variaveis, ledger)
     client_secret = _tomar(config.get("clientSecret"), variaveis, ledger)
@@ -150,6 +169,9 @@ def token_oauth2(config: dict, variaveis: dict, ledger: list, cofre=None) -> tup
                     return dados["token"], None, f"OAuth2 do cache, expira em {faltam}s"
             except (json.JSONDecodeError, KeyError):
                 pass
+
+    if not rede:
+        return "", None, "OAuth2, o token e pedido no envio"
 
     corpo = {"grant_type": "client_credentials", "client_id": client_id}
     if client_secret:
@@ -172,12 +194,18 @@ def token_oauth2(config: dict, variaveis: dict, ledger: list, cofre=None) -> tup
         dados = resposta.json()
     except ValueError:
         return "", "resposta do token nao e JSON", ""
+    if not isinstance(dados, dict):
+        return "", "resposta do token nao e um objeto JSON", ""
 
     token = dados.get("access_token")
     if not token:
         return "", "resposta do token nao trouxe access_token", ""
 
-    vida = int(dados.get("expires_in") or 3600)
+    # provedor que manda "3600.0" ou texto no expires_in derrubava o envio com ValueError
+    try:
+        vida = int(float(dados.get("expires_in") or 3600))
+    except (TypeError, ValueError, OverflowError):
+        vida = 3600
     if cofre is not None:
         try:
             cofre.set(chave, json.dumps({"token": token, "expira": time.time() + vida}))

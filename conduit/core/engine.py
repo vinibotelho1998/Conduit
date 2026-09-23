@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import http.cookiejar
 import time
+import urllib.request
 from dataclasses import dataclass, field
 
 import httpx
@@ -37,6 +39,8 @@ class Prepared:
     certificado: object = None
     cert_senha: str = ""
     cookies: dict = field(default_factory=dict)
+    # token do OAuth2 que ficou pra ser pedido no envio, ver completar_auth
+    oauth2_pendente: dict | None = None
 
 
 def prepare(
@@ -45,7 +49,13 @@ def prepare(
     ancestry: list | None = None,
     tree: dict | None = None,
     cofre=None,
+    rede: bool = True,
 ) -> Prepared:
+    """Resolve o request inteiro. Com `rede` desligada, nada aqui vai a rede.
+
+    A interface sempre prepara com a rede desligada: o token do OAuth2 que nao esta no
+    cofre fica pendente e e pedido por `send`, que ja roda fora da thread da janela.
+    """
     out = Prepared()
     missing: list[str] = []
     secrets: list[tuple[str, str]] = []
@@ -90,17 +100,22 @@ def prepare(
             out.headers["Content-Type"] = "application/x-www-form-urlencoded"
 
     settings = request.get("settings") or {}
-    out.timeout = float(settings.get("timeout") or 0)
+    try:
+        out.timeout = float(settings.get("timeout") or 0)
+    except (TypeError, ValueError):
+        # "30s" escrito na mao no YAML estourava ValueError no clique de Enviar
+        out.timeout = 0.0
     out.verify_tls = settings.get("verifyTls", True)
     out.ca_arquivo = ""
     out.follow_redirects = settings.get("followRedirects", True)
 
     config, origem = authmod.efetiva(request, ancestry)
-    aplicada = authmod.aplicar(config, variables, cofre)
+    aplicada = authmod.aplicar(config, variables, cofre, rede=rede)
     out.auth_tipo = aplicada.tipo
     out.auth_origem = origem
     out.auth_detalhe = aplicada.detalhe
     out.auth_erro = aplicada.erro
+    out.oauth2_pendente = aplicada.pendente
 
     # header do request ganha do header da auth, senao nao daria pra sobrepor num caso
     for chave, valor in aplicada.headers.items():
@@ -124,9 +139,73 @@ def prepare(
     return out
 
 
+def completar_auth(prepared: Prepared) -> None:
+    """Pede o token do OAuth2 que o prepare deixou pendente. Vai a rede.
+
+    Troca so o header que ainda carrega a marca de pendente: header de Authorization
+    escrito no proprio request continua ganhando da auth, como no prepare.
+    """
+    pendente = prepared.oauth2_pendente
+    if not pendente:
+        return
+    prepared.oauth2_pendente = None
+    if pendente["marca"] not in prepared.headers.values():
+        # o Authorization escrito no request ganhou da auth: o token nao vai em lugar
+        # nenhum, e pedir ele assim mesmo so servia pra falha do provedor barrar o envio
+        return
+    aplicada = authmod.aplicar(pendente["config"], pendente["variaveis"], pendente["cofre"])
+    if aplicada.erro:
+        prepared.auth_erro = aplicada.erro
+        return
+    prepared.auth_detalhe = aplicada.detalhe
+    novo = aplicada.headers.get("Authorization", "")
+    for chave, valor in list(prepared.headers.items()):
+        if valor == pendente["marca"]:
+            prepared.headers[chave] = novo
+    prepared.secrets.extend(aplicada.secrets)
+
+
+def _dominio(url: str) -> str:
+    """O host do jeito que o cookiejar compara, com o .local que ele poe em host sem ponto."""
+    return http.cookiejar.eff_request_host(urllib.request.Request(url))[1]
+
+
+def _jarra(url: str, cookies: dict) -> httpx.Cookies | None:
+    """Os cookies guardados, presos ao host de onde vieram.
+
+    Passados como dicionario solto, o httpx grava cada um sem dominio, e cookie sem
+    dominio vai pra qualquer host: num redirect pra outro endereco, a sessao do primeiro
+    servidor seguia junto pro segundo.
+    """
+    if not cookies:
+        return None
+    dominio = _dominio(url)
+    jarra = httpx.Cookies()
+    for nome, valor in cookies.items():
+        jarra.set(str(nome), str(valor), domain=dominio)
+    return jarra
+
+
+def _cookies_do_host(jar, url: str) -> dict:
+    """So o que vale pro host do request. O jar do workspace guarda por host dele, e o
+    cookie que um redirect pegou de outro servidor iria parar no primeiro."""
+    dominio = _dominio(url)
+    saida = {}
+    for cookie in jar:
+        alvo = (cookie.domain or "").lstrip(".")
+        if not alvo or dominio == alvo or dominio.endswith("." + alvo):
+            saida[cookie.name] = cookie.value
+    return saida
+
+
 def send(prepared: Prepared) -> dict:
     if not prepared.url.lower().startswith(("http://", "https://")):
         return {"ok": False, "error": "a url precisa comecar com http ou https", "elapsedMs": 0}
+
+    try:
+        completar_auth(prepared)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"auth: {type(exc).__name__}: {exc}", "elapsedMs": 0}
 
     if prepared.auth_erro:
         return {"ok": False, "error": f"auth: {prepared.auth_erro}", "elapsedMs": 0}
@@ -168,7 +247,7 @@ def send(prepared: Prepared) -> dict:
             timeout=limite,
             verify=verificacao,
             follow_redirects=prepared.follow_redirects,
-            cookies=prepared.cookies or None,
+            cookies=_jarra(prepared.url, prepared.cookies),
         ) as client:
             resp = client.request(
                 prepared.method,
@@ -182,7 +261,7 @@ def send(prepared: Prepared) -> dict:
             # Pelo jar, e nao por dict(client.cookies): o mapping do httpx indexa
             # por nome e levanta CookieConflict quando o mesmo nome existe em dois
             # domain/path. Aqui o ultimo gravado vence.
-            cookies_finais = {c.name: c.value for c in client.cookies.jar}
+            cookies_finais = _cookies_do_host(client.cookies.jar, prepared.url)
         elapsed = round((time.perf_counter() - started) * 1000)
         return {
             "ok": True,

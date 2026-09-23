@@ -20,9 +20,14 @@ class CookieJar:
     def _carregar(self) -> dict[str, dict[str, str]]:
         if self._dados is None:
             try:
-                self._dados = json.loads(self.caminho.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                self._dados = {}
+                dados = json.loads(self.caminho.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                dados = {}
+            # O jar e lido em todo envio. Arquivo que nao e mapa de host pra mapa de
+            # cookie, ou que nao e UTF-8, estourava ali, e nenhum request saia mais.
+            if not isinstance(dados, dict):
+                dados = {}
+            self._dados = {h: c for h, c in dados.items() if isinstance(c, dict)}
         return self._dados
 
     def _gravar(self) -> None:

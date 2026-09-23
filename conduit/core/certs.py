@@ -96,7 +96,8 @@ def contexto_ssl(
 ) -> tuple[ssl.SSLContext, str]:
     """Monta o contexto TLS ja com a identidade do cliente carregada.
 
-    Devolve tambem o caminho do PEM temporario, que o chamador apaga depois do envio.
+    Devolve tambem o caminho do PEM temporario, que ja volta apagado: o chamador ainda
+    pode passar ele pro descartar, que nao reclama de arquivo que nao existe.
     """
     caminho = Path(cert.arquivo)
     if not caminho.exists():
@@ -116,14 +117,21 @@ def contexto_ssl(
 
     descritor, temporario = tempfile.mkstemp(suffix=".pem", prefix="conduit-")
     try:
-        os.write(descritor, pem)
+        try:
+            os.write(descritor, pem)
+        finally:
+            os.close(descritor)
+
+        if os.name == "nt":
+            _so_o_dono(temporario)
+
+        contexto.load_cert_chain(temporario)
     finally:
-        os.close(descritor)
-
-    if os.name == "nt":
-        _so_o_dono(temporario)
-
-    contexto.load_cert_chain(temporario)
+        # Carregada no contexto, a chave nao precisa mais do arquivo. Antes ele ficava na
+        # pasta temporaria, com a chave privada em claro, ate a resposta chegar, e o
+        # envio nao tem teto de leitura. Na falha, como um pem sem certificado ou com
+        # chave que nao bate, ninguem apagava a copia nunca mais.
+        descartar(temporario)
     return contexto, temporario
 
 
