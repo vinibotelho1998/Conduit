@@ -130,5 +130,11 @@ class CodegenDialog(QDialog):
         sufixo = EXTENSAO.get(self.combo.currentData(), ".txt")
         destino, _ = QFileDialog.getSaveFileName(self, "Salvar codigo", f"request{sufixo}")
         if destino:
-            with open(destino, "w", encoding="utf-8") as arquivo:
-                arquivo.write(self.codigo.toPlainText())
+            try:
+                with open(destino, "w", encoding="utf-8") as arquivo:
+                    arquivo.write(self.codigo.toPlainText())
+            except OSError as exc:
+                # pasta sem permissao ou arquivo aberto em outro programa caiam no
+                # tratador de tombo, com a caixa de erro generica
+                self.aviso.setText(f"nao consegui gravar: {exc}")
+                theme.estilizar(self.aviso, lambda: f"color: {theme.ERR};")

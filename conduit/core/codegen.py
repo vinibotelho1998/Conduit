@@ -94,7 +94,7 @@ def _python_httpx(method, url, headers, body) -> str:
     if body:
         linhas.append("body = " + _py_literal(body))
     linhas.append("")
-    args = [f'"{method}"', f'"{url}"']
+    args = [f'"{method}"', json.dumps(url, ensure_ascii=False)]
     if headers:
         args.append("headers=headers")
     if body:
@@ -114,7 +114,7 @@ def _python_requests(method, url, headers, body) -> str:
     if body:
         linhas.append("body = " + _py_literal(body))
     linhas.append("")
-    args = [f'"{method}"', f'"{url}"']
+    args = [f'"{method}"', json.dumps(url, ensure_ascii=False)]
     if headers:
         args.append("headers=headers")
     if body:
@@ -128,16 +128,24 @@ def _python_requests(method, url, headers, body) -> str:
 
 def _py_literal(body: str) -> str:
     if "\n" in body:
-        return '"""' + body.replace('"""', '\\"\\"\\"') + '"""'
+        # A barra invertida dobra primeiro. Entre aspas triplas o Python le o \n e o \"
+        # de dentro de um JSON como escape, e o corpo que o codigo mandava nao era mais
+        # o do request: virava quebra de linha real dentro da string, JSON invalido.
+        # As aspas do fim saem escapadas uma a uma: coladas no fechamento, viravam quatro
+        # aspas ou mais e erro de sintaxe. Separar antes de escapar evita confundir a aspa
+        # do corpo com a de um \"\"\" que o proprio escape acabou de criar.
+        miolo = body.rstrip('"')
+        texto = miolo.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+        return '"""' + texto + '\\"' * (len(body) - len(miolo)) + '"""'
     return json.dumps(body, ensure_ascii=False)
 
 
 def _fetch(method, url, headers, body) -> str:
     corpo = ""
     if body:
-        corpo = "  body: " + _js_literal(body) + ",\n"
+        corpo = "  body: " + _js_corpo_texto(body) + ",\n"
 
-    linhas = [f'const resposta = await fetch("{url}", {{']
+    linhas = [f"const resposta = await fetch({json.dumps(url, ensure_ascii=False)}, {{"]
     linhas.append(f'  method: "{method}",')
     if headers:
         linhas.append("  headers: " + json.dumps(headers, indent=2, ensure_ascii=False).replace("\n", "\n  ") + ",")
@@ -153,7 +161,7 @@ def _fetch(method, url, headers, body) -> str:
 def _axios(method, url, headers, body) -> str:
     linhas = ['const axios = require("axios");', "", "const resposta = await axios({"]
     linhas.append(f'  method: "{method.lower()}",')
-    linhas.append(f'  url: "{url}",')
+    linhas.append(f"  url: {json.dumps(url, ensure_ascii=False)},")
     if headers:
         linhas.append("  headers: " + json.dumps(headers, indent=2, ensure_ascii=False).replace("\n", "\n  ") + ",")
     if body:
@@ -169,7 +177,28 @@ def _js_literal(body: str) -> str:
     try:
         return json.dumps(json.loads(body), indent=2, ensure_ascii=False)
     except (json.JSONDecodeError, ValueError):
-        return "`" + body.replace("`", "\\`") + "`"
+        return _js_template(body)
+
+
+def _js_template(body: str) -> str:
+    # num template literal a barra invertida e escape e ${ abre interpolacao: sem tratar
+    # os dois, o texto que saia no codigo nao era o texto do request
+    texto = body.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+    return "`" + texto + "`"
+
+
+def _js_corpo_texto(body: str) -> str:
+    """Corpo pro fetch, que manda o que recebe como esta.
+
+    Objeto solto no body do fetch vira o texto [object Object] no fio, e era assim que
+    todo request com corpo JSON saia no codigo gerado. O axios serializa sozinho, o
+    fetch nao.
+    """
+    try:
+        objeto = json.dumps(json.loads(body), indent=2, ensure_ascii=False)
+    except (json.JSONDecodeError, ValueError):
+        return _js_template(body)
+    return f"JSON.stringify({objeto})"
 
 
 def _java(method, url, headers, body) -> str:
@@ -186,13 +215,14 @@ def _java(method, url, headers, body) -> str:
         "        .build();",
         "",
         "HttpRequest requisicao = HttpRequest.newBuilder()",
-        f'        .uri(URI.create("{url}"))',
+        f'        .uri(URI.create("{_java_escape(url)}"))',
     ]
     for chave, valor in headers.items():
         linhas.append(f'        .header("{chave}", "{_java_escape(valor)}")')
     if body:
         linhas.append(f'        .method("{method}", HttpRequest.BodyPublishers.ofString("""')
-        linhas.append(body)
+        # text block tambem le barra invertida como escape, como o Python
+        linhas.append(body.replace("\\", "\\\\").replace('"""', '\\"\\"\\"'))
         linhas.append('"""))')
     else:
         linhas.append(f'        .method("{method}", HttpRequest.BodyPublishers.noBody())')
@@ -215,7 +245,7 @@ def _csharp(method, url, headers, body) -> str:
         "using System.Text;",
         "",
         "using var cliente = new HttpClient();",
-        f'var requisicao = new HttpRequestMessage(new HttpMethod("{method}"), "{url}");',
+        f'var requisicao = new HttpRequestMessage(new HttpMethod("{method}"), "{_java_escape(url)}");',
     ]
     for chave, valor in headers.items():
         if chave.lower() == "content-type":
@@ -243,9 +273,9 @@ def _go(method, url, headers, body) -> str:
     if body:
         literal = body.replace("`", "` + \"`\" + `")
         linhas.append(f"    corpo := strings.NewReader(`{literal}`)")
-        linhas.append(f'    requisicao, _ := http.NewRequest("{method}", "{url}", corpo)')
+        linhas.append(f'    requisicao, _ := http.NewRequest("{method}", "{_java_escape(url)}", corpo)')
     else:
-        linhas.append(f'    requisicao, _ := http.NewRequest("{method}", "{url}", nil)')
+        linhas.append(f'    requisicao, _ := http.NewRequest("{method}", "{_java_escape(url)}", nil)')
     for chave, valor in headers.items():
         linhas.append(f'    requisicao.Header.Set("{chave}", "{_java_escape(valor)}")')
     linhas.append("")
