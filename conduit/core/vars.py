@@ -68,9 +68,13 @@ def resolve(text: str, variables: dict[str, dict]) -> Resolved:
 
 
 def redact(text: str, secrets: list[tuple[str, str]]) -> str:
-    """Troca o valor real de volta pelo {{nome}}. Por valor, nao por nome de header."""
+    """Troca o valor real de volta pelo {{nome}}. Por valor, nao por nome de header.
+
+    O mais comprido vai primeiro. Na ordem do ledger, uma senha `abc` trocada antes de um
+    token `abc123xyz` partia o token ao meio, e o resto dele ia pro historico em claro.
+    """
     out = text
-    for name, value in secrets or []:
+    for name, value in sorted(secrets or [], key=lambda par: len(par[1] or ""), reverse=True):
         if value:
             out = out.replace(value, "{{%s}}" % name)
     return out

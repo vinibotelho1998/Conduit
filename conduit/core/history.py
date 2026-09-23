@@ -119,12 +119,42 @@ class History:
     @property
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-            self._conn.executescript(SCHEMA)
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.commit()
+            novo = not self.db_path.exists()
+            try:
+                self._conn = self._abrir()
+            except sqlite3.DatabaseError:
+                # Indice que nao abre derrubava a abertura do workspace inteiro, porque
+                # o expurgo roda no load. Ele e so um indice: vai pro lado e nasce de novo.
+                self._separar_indice()
+                self._conn = self._abrir()
+                novo = True
+            if novo and any(self.dir.glob("*.jsonl")):
+                # o log e a fonte da verdade, como diz o topo do arquivo. Indice apagado
+                # ou recem trocado voltava vazio ate alguem achar o Reconstruir no menu
+                self.rebuild_index()
         return self._conn
+
+    def _abrir(self) -> sqlite3.Connection:
+        conexao = sqlite3.connect(self.db_path, check_same_thread=False)
+        try:
+            conexao.row_factory = sqlite3.Row
+            conexao.executescript(SCHEMA)
+            conexao.execute("PRAGMA journal_mode=WAL")
+            conexao.commit()
+        except sqlite3.DatabaseError:
+            conexao.close()
+            raise
+        return conexao
+
+    def _separar_indice(self) -> None:
+        marca = datetime.now().strftime("%Y%m%d-%H%M%S")
+        for sufixo in ("", "-wal", "-shm"):
+            antigo = self.dir / f"index.db{sufixo}"
+            if antigo.exists():
+                try:
+                    antigo.replace(self.dir / f"index.db{sufixo}.ilegivel-{marca}")
+                except OSError:
+                    pass
 
     def close(self) -> None:
         if self._conn is not None:
@@ -344,36 +374,47 @@ class History:
                         entry = json.loads(line.decode("utf-8"))
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         continue
-                    response = entry.get("response") or {}
-                    request = entry.get("request") or {}
+                    # Linha que nao e uma execucao fica de fora. O indice se reconstroi
+                    # sozinho ao abrir o workspace, e uma linha estranha no log derrubava
+                    # a abertura inteira em vez de sair so da busca.
+                    if not isinstance(entry, dict):
+                        continue
+                    response = entry.get("response") if isinstance(entry.get("response"), dict) else {}
+                    request = entry.get("request") if isinstance(entry.get("request"), dict) else {}
                     try:
                         epoch = datetime.fromisoformat(entry["ts"]).timestamp()
-                    except (KeyError, ValueError):
+                    except (KeyError, TypeError, ValueError):
                         epoch = 0.0
-                    self.conn.execute(
-                        "INSERT OR REPLACE INTO entries (id, ts, ts_epoch, day, offset,"
-                        " request_id, request_path, name, env, method, url, status, ok,"
-                        " error, elapsed_ms, size_bytes, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (
-                            entry.get("id"),
-                            entry.get("ts"),
-                            epoch,
-                            day,
-                            offset,
-                            entry.get("requestId"),
-                            entry.get("requestPath"),
-                            entry.get("name"),
-                            entry.get("env"),
-                            request.get("method"),
-                            request.get("url"),
-                            response.get("status"),
-                            1 if response.get("ok") else 0,
-                            response.get("error"),
-                            response.get("elapsedMs"),
-                            response.get("sizeBytes"),
-                            " ".join(f"{k}={v}" for k, v in (entry.get("trace") or {}).items()),
-                        ),
-                    )
+                    trace = entry.get("trace") if isinstance(entry.get("trace"), dict) else {}
+                    try:
+                        self.conn.execute(
+                            "INSERT OR REPLACE INTO entries (id, ts, ts_epoch, day, offset,"
+                            " request_id, request_path, name, env, method, url, status, ok,"
+                            " error, elapsed_ms, size_bytes, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (
+                                entry.get("id"),
+                                entry.get("ts"),
+                                epoch,
+                                day,
+                                offset,
+                                entry.get("requestId"),
+                                entry.get("requestPath"),
+                                entry.get("name"),
+                                entry.get("env"),
+                                request.get("method"),
+                                request.get("url"),
+                                response.get("status"),
+                                1 if response.get("ok") else 0,
+                                response.get("error"),
+                                response.get("elapsedMs"),
+                                response.get("sizeBytes"),
+                                " ".join(f"{k}={v}" for k, v in trace.items()),
+                            ),
+                        )
+                    except (sqlite3.InterfaceError, sqlite3.ProgrammingError, OverflowError):
+                        # campo com lista ou mapa onde a coluna espera texto ou numero, ou
+                        # inteiro maior do que o sqlite guarda
+                        continue
                     total += 1
         self.conn.commit()
         return total
