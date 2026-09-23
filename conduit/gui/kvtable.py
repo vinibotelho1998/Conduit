@@ -323,7 +323,10 @@ class KvTable(QWidget):
             )
 
         for col, field in ((1, "key"), (2, "value")):
-            item = QTableWidgetItem(data.get(field) or "")
+            bruto = data.get(field)
+            # numero vindo de import chegava aqui cru, e QTableWidgetItem(8080) le o
+            # inteiro como tipo do item: a celula saia vazia e a edicao gravava vazio
+            item = QTableWidgetItem("" if bruto is None else str(bruto))
             item.setData(Qt.ItemDataRole.UserRole, ghost)
             if ghost:
                 item.setForeground(Qt.GlobalColor.gray)

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
+from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QApplication
 
 from .. import APP_ID, APP_NAME, __version__
@@ -96,7 +98,15 @@ def main() -> int:
     window = MainWindow()
     window.setWindowIcon(app_icon())
     window.show()
-    return app.exec()
+    codigo = app.exec()
+
+    # O Qt so encerra o processo depois que o pool de threads esvazia, e o envio nao tem
+    # teto de leitura: um servidor que nunca responde deixava o Conduit rodando escondido
+    # depois da janela fechada, prendendo o executavel na hora de instalar versao nova. O
+    # que importa ja foi gravado no closeEvent; aqui so se da um tempo curto pro que esta
+    # terminando, como o token do OAuth2 indo pro cofre, e o processo sai.
+    QThreadPool.globalInstance().waitForDone(2000)
+    os._exit(codigo)
 
 
 if __name__ == "__main__":

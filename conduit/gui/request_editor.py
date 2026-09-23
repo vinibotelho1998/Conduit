@@ -141,7 +141,7 @@ class RequestEditor(QWidget):
                 Qt.ItemDataRole.ForegroundRole,
             )
             self.method.setItemData(indice, mono(9), Qt.ItemDataRole.FontRole)
-        self.method.setCurrentText(request.get("method") or "GET")
+        self._mostrar_metodo(request.get("method"))
         self.method.setFixedWidth(112)
         self.method.setFixedHeight(36)
         self.method.setFont(mono(9))
@@ -423,6 +423,20 @@ class RequestEditor(QWidget):
             self._timer_novas.start()
             self.changed.emit()
 
+    def _mostrar_metodo(self, metodo: str | None) -> None:
+        """Poe o metodo do request no seletor, mesmo o que nao esta na lista.
+
+        O seletor nao e editavel, e setCurrentText com um texto que ele nao tem nao faz
+        nada: um PURGE vindo do Postman ou de um curl, ou um post minusculo escrito a mao
+        no YAML, abria como o metodo que estava antes no seletor, e o request passava a
+        sair com ele. Maiusculo porque e assim que o envio manda.
+        """
+        metodo = (metodo or "GET").upper()
+        if self.method.findText(metodo) < 0:
+            self.method.addItem(metodo)
+            self.method.setItemData(self.method.count() - 1, mono(9), Qt.ItemDataRole.FontRole)
+        self.method.setCurrentText(metodo)
+
     def _on_method(self, value: str) -> None:
         self.request["method"] = value
         color = theme.METHOD_COLORS.get(value, theme.TEXT)
@@ -633,7 +647,7 @@ class RequestEditor(QWidget):
     def recarregar_do_modelo(self) -> None:
         """Redesenha os campos a partir do request, depois de uma importacao."""
         self._loading = True
-        self.method.setCurrentText(self.request.get("method") or "GET")
+        self._mostrar_metodo(self.request.get("method"))
         self.url.setPlainText(self.request.get("url") or "")
 
         self.params.rows = self.request.setdefault("params", [])
@@ -646,6 +660,9 @@ class RequestEditor(QWidget):
             botao.setChecked(botao.property("mode") == corpo.get("mode", "none"))
         self.body.setPlainText(corpo.get("raw") or "")
         self._apply_mode()
+        # sem isto o Docs ficava com o texto antigo depois de reverter ou de recarregar
+        # do disco, e a proxima tecla ali gravava o texto velho por cima do modelo
+        self.docs.setPlainText(self.request.get("docs") or "")
 
         if hasattr(self, "auth"):
             self.auth._carregando = True

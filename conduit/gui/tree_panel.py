@@ -593,10 +593,16 @@ class TreePanel(QWidget):
 
         from ..core.workspaces import new_id
 
+        from ..core import examples
+
         clone = copy.deepcopy(node)
 
         def reid(target: dict) -> None:
             target["id"] = new_id(target.get("type", "item")[:3])
+            # o exemplo tambem ganha id novo: repetido, a arvore guardava so um dos dois
+            # pelo id, e clicar no exemplo do original abria, renomeava ou excluia o da copia
+            for exemplo in target.get("examples") or []:
+                exemplo["id"] = examples.novo_id()
             for child in target.get("items") or []:
                 reid(child)
 
@@ -604,7 +610,13 @@ class TreePanel(QWidget):
         clone["name"] = f"{node.get('name')} copia"
         parent = self.find_parent(node)
         siblings = parent["items"] if parent else self.tree_data["collections"]
-        siblings.insert(siblings.index(node) + 1, clone)
+        posicao = next((i for i, irmao in enumerate(siblings) if irmao is node), None)
+        if posicao is None:
+            # o item saiu da arvore por fora com a aba ainda aberta: index estourava
+            # ValueError e o Duplicar da aba virava caixa de erro
+            self._desfazer.pop()
+            return
+        siblings.insert(posicao + 1, clone)
         self.refresh()
         self.tree_changed.emit()
         # quem duplica um request quer mexer na copia agora, entao ela ja abre. Pasta e

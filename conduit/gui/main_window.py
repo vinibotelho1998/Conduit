@@ -47,6 +47,7 @@ from .sftp_panel import SftpPanel
 from .splitter import Divisor
 from .tabbar import AbaTabs
 from .tree_panel import TreePanel
+from .widgets import dica_de_fora
 
 
 class SendSignals(QObject):
@@ -71,7 +72,11 @@ class SendTask(QRunnable):
 
     @Slot()
     def run(self) -> None:
-        result = engine.send(self.prepared)
+        try:
+            result = engine.send(self.prepared)
+        except Exception as exc:  # noqa: BLE001
+            # sem resultado o sinal nao sai, e a aba ficava em Enviando pra sempre
+            result = {"ok": False, "error": f"{type(exc).__name__}: {exc}", "elapsedMs": 0}
         self.signals.done.emit(result, self.node)
 
 
@@ -119,7 +124,8 @@ def _foto(no: dict) -> str:
 
     corpo = no.get("body") or {}
     dados = {
-        "method": no.get("method") or "GET",
+        # maiusculo como o envio manda, e como o seletor da aba mostra
+        "method": (no.get("method") or "GET").upper(),
         "url": base,
         "params": [ligados, desligados],
         "headers": [
@@ -154,6 +160,11 @@ class MainWindow(QMainWindow):
         self._tasks: set = set()
         self._assinatura: dict = {}
         self._recarregando = False
+        # alteracao da arvore que ainda nao chegou ao disco, e o motivo da ultima falha
+        self._falta_gravar = False
+        self._erro_gravar = ""
+        # servidores SFTP com conexao a caminho, ver sftp_abrir
+        self._sftp_conectando: set = set()
         self.jar = None
         self.runtime_vars: dict = {}
         self.rascunhos: dict = {}
@@ -629,12 +640,24 @@ class MainWindow(QMainWindow):
             self.load_workspace(target)
 
     def load_workspace(self, wid: str) -> None:
-        if self.workspace_id and self.save_timer.isActive():
-            self._save_now()
+        if self.workspace_id and self._falta_gravar and not self._save_now():
+            # Trocar descarta a arvore da memoria. Com o disco recusando a gravacao, era
+            # la que estava a unica copia do que mudou, e ela sumia sem aviso.
+            if not self._seguir_sem_gravar("Trocar de workspace"):
+                return
+        if self.workspace_id and self.rascunho_timer.isActive():
+            # a ultima tecla da aba ainda nao tinha ido pro rascunho, e as abas fecham aqui
+            self._guardar_rascunhos()
+        self.rascunho_timer.stop()
 
         entry = ws.get_workspace(wid)
         self.workspace_id = wid
         self.tree_data = ws.read_tree(wid)
+        # a arvore agora e a do disco, entao nada esta pendente. Trocando depois de aceitar
+        # perder o que nao gravou, a marca ficava ligada e o timer do disco parava de ver
+        # o que mudava por fora no workspace novo ate o proximo salvar
+        self._falta_gravar = False
+        self._erro_gravar = ""
         self._assinatura = ws.assinatura(wid)
         ws.set_active(wid)
 
@@ -646,7 +669,10 @@ class MainWindow(QMainWindow):
             navegador.encerrar()
         self.sftp_abas.clear()
 
+        paginas = [self.tabs.widget(i) for i in range(self.tabs.count())]
         self.tabs.clear()
+        for pagina in paginas:
+            self._descartar_pagina(pagina)
         self.editors.clear()
         self.env_editors.clear()
         self.rascunhos = self._ler_rascunhos()
@@ -678,9 +704,24 @@ class MainWindow(QMainWindow):
         """Ve se alguem mexeu no workspace por fora e traz pra tela."""
         if not self.workspace_id or self.save_timer.isActive():
             return
+        if self._falta_gravar:
+            # Salvar falhou e o que mudou so existe na memoria. Reler o disco agora
+            # trocava a arvore da memoria pela do disco: um salvar que gravou metade dos
+            # arquivos e parou muda a assinatura. A proxima edicao grava de novo, e trocar
+            # de workspace ou fechar o app pergunta antes de perder.
+            return
+        if QApplication.activeModalWidget() is not None:
+            # O timer continua batendo com um dialogo aberto. Variaveis, certificados e
+            # auth da pasta editam a arvore que receberam ao abrir, e trocar a arvore por
+            # baixo deles fazia o que se digitou ali sumir no salvar seguinte. Fechado o
+            # dialogo, o salvar ja guarda em .conduit/conflitos o que mudou por fora.
+            return
         try:
             atual = ws.assinatura(self.workspace_id)
-        except OSError:
+        except (OSError, KeyError):
+            # KeyError e o workspace aberto saindo do registro, pela tela de gerenciar.
+            # Sem pegar aqui, o timer estourava a cada segundo e meio, e cada estouro
+            # abria mais uma caixa de erro por cima da anterior.
             return
         if atual != self._assinatura:
             self._recarregar_do_disco(atual)
@@ -762,6 +803,26 @@ class MainWindow(QMainWindow):
                 editor.definir_exemplos(novo.get("examples"))
                 self._marcar_aba(editor)
 
+            # A aba de ambiente segurava o dicionario da arvore antiga. O que se digitava
+            # nela depois de recarregar ia pra um ambiente que ja nao estava na arvore, e o
+            # salvar seguinte gravava sem a edicao, calado. A edicao feita antes daqui ja
+            # foi pro disco: o recarregar nao roda com salvamento pendente.
+            for env_id, aba_env in list(self.env_editors.items()):
+                if env_id == GLOBAIS:
+                    valores = self.tree_data.setdefault("globals", [])
+                    aba_env.env["values"] = valores
+                else:
+                    novo_env = self._env_por_id(env_id)
+                    if novo_env is None:
+                        self.close_tab(self.tabs.indexOf(aba_env))
+                        continue
+                    aba_env.env = novo_env
+                    valores = novo_env.setdefault("values", [])
+                    self.tabs.setTabText(self.tabs.indexOf(aba_env), novo_env.get("name") or "ambiente")
+                aba_env.tabela.rows = valores
+                aba_env.tabela.reload()
+                aba_env.atualizar(ativo=env_id == self.tree_data.get("activeEnv"))
+
             self.tree_panel.load(self.tree_data)
             self.tree_panel.definir_ordenacao(self.tree_data.get("sortMode") or "manual")
             self.fav_panel.load(self.tree_data)
@@ -808,6 +869,10 @@ class MainWindow(QMainWindow):
         """Renomear, trocar cor, duplicar, abrir a pasta e excluir."""
         from .workspaces_dialog import WorkspacesDialog
 
+        # o que estava pra gravar grava agora: dentro do dialogo o workspace aberto pode
+        # sair do registro, e ai nao haveria mais onde gravar
+        if self.workspace_id and self._falta_gravar:
+            self._save_now()
         dialog = WorkspacesDialog(self)
         dialog.exec()
         self._load_registry()
@@ -1235,7 +1300,8 @@ class MainWindow(QMainWindow):
         dica = "{} {}".format(metodo, editor.request.get("url") or "").strip()
         if sujo:
             dica += "\nalterado, ainda nao salvo.  Ctrl+S salva"
-        self.tabs.setTabToolTip(index, dica)
+        # a url pode vir de collection importada, ver widgets.dica_de_fora
+        self.tabs.setTabToolTip(index, dica_de_fora(dica))
 
     def _guardar_rascunhos(self) -> None:
         """Grava as copias em aberto em .conduit, que fica fora do git.
@@ -1255,7 +1321,12 @@ class MainWindow(QMainWindow):
             raiz.mkdir(exist_ok=True)
             alvo = raiz / "rascunhos.json"
             if atual:
-                alvo.write_text(json.dumps(atual, ensure_ascii=False, indent=1), encoding="utf-8")
+                # temporario e troca, como o resto do app grava: escrito direto, um
+                # desligamento no meio deixava o JSON cortado, e ler JSON cortado devolve
+                # vazio. Todo rascunho de toda aba ia embora de uma vez.
+                temporario = alvo.with_suffix(".json.tmp")
+                temporario.write_text(json.dumps(atual, ensure_ascii=False, indent=1), encoding="utf-8")
+                temporario.replace(alvo)
             elif alvo.exists():
                 alvo.unlink()
         except (OSError, KeyError):
@@ -1309,8 +1380,11 @@ class MainWindow(QMainWindow):
         try:
             alvo = Path(ws.get_workspace(self.workspace_id)["path"]) / ".conduit" / "rascunhos.json"
             if alvo.exists():
-                return json.loads(alvo.read_text(encoding="utf-8"))
-        except (OSError, KeyError, json.JSONDecodeError):
+                dados = json.loads(alvo.read_text(encoding="utf-8"))
+                # o arquivo tambem chega escrito por fora, e so mapa de mapa e rascunho
+                if isinstance(dados, dict):
+                    return {k: v for k, v in dados.items() if isinstance(v, dict)}
+        except (OSError, KeyError, ValueError):
             pass
         return {}
 
@@ -1328,6 +1402,17 @@ class MainWindow(QMainWindow):
         if not self._sujo(widget):
             self.statusBar().showMessage("nada mudou nesse request", 3000)
             return True
+        if not any(no is real for no in self.tree_panel._iter_nodes()):
+            # O request saiu da arvore por fora, num git checkout ou num arquivo apagado,
+            # com a aba aberta e alterada. Gravar no item solto dizia salvo e nao gravava
+            # nada: ele nao estava mais em arvore nenhuma, e o rascunho era apagado junto.
+            self.statusBar().showMessage(
+                "{} nao existe mais no workspace, a alteracao continua so nesta aba".format(
+                    real.get("name")
+                ),
+                9000,
+            )
+            return False
 
         for campo in CAMPOS_EDITAVEIS:
             if campo in widget.request:
@@ -1337,8 +1422,9 @@ class MainWindow(QMainWindow):
         self._marcar_aba(widget)
         self._guardar_janela()
         self._guardar_rascunhos()
-        self._save_now()
-        self.statusBar().showMessage("{} salvo".format(real.get("name")), 3000)
+        if self._save_now():
+            # na falha fica a mensagem do _save_now, e nao um salvo que nao aconteceu
+            self.statusBar().showMessage("{} salvo".format(real.get("name")), 3000)
         return True
 
     def salvar_todas(self) -> None:
@@ -1400,8 +1486,8 @@ class MainWindow(QMainWindow):
         caixa.setDefaultButton(salvar)
         caixa.exec()
         if caixa.clickedButton() is salvar:
-            self.salvar_aba(index)
-            return True
+            # salvar recusado deixa a aba aberta, senao a alteracao ia embora com ela
+            return self.salvar_aba(index)
         return caixa.clickedButton() is descartar
 
     def _fechar_muitas(self, indices) -> None:
@@ -1453,9 +1539,23 @@ class MainWindow(QMainWindow):
                 self.sftp_panel.marcar_ligado(perfil_id, False)
                 break
         self.tabs.removeTab(index)
+        self._descartar_pagina(widget)
         self.respostas.pop(node_id_fechado, None)
         self._guardar_rascunhos()
         self._sync_tabs_visibility()
+
+    @staticmethod
+    def _descartar_pagina(widget) -> None:
+        """Apaga a pagina que saiu das abas.
+
+        removeTab e clear so tiram a pagina da vista: ela continuava filha da area de
+        abas, viva, com grade, realce e folha de estilo registrada na troca de tema. Cada
+        aba aberta e fechada ficava na memoria ate o app fechar, e trocar de tema ia
+        ficando mais lento. O navegador SFTP fica de fora: a tarefa que ainda esta no
+        pool responde nele depois de fechado.
+        """
+        if isinstance(widget, (RequestEditor, EnvEditor)):
+            widget.deleteLater()
 
 
     def _env_por_id(self, env_id: str) -> dict | None:
@@ -1829,12 +1929,15 @@ class MainWindow(QMainWindow):
         if node_id in self.pending:
             return
 
+        # rede desligada: token do OAuth2 que nao esta no cofre e pedido pelo send, ja na
+        # thread do pool. Pedido daqui, a janela congelava ate o provedor responder.
         prepared = engine.prepare(
             node,
             scopes.as_plain(self.variables_for(node)),
             ancestry=self.ancestry_of(node),
             tree=self.tree_data,
             cofre=ws.cofre(self.workspace_id) if self.workspace_id else None,
+            rede=False,
         )
         prepared.ca_arquivo = self.tree_data.get("caFile") or ""
         if self.jar is not None:
@@ -2260,11 +2363,11 @@ class MainWindow(QMainWindow):
         self.tree_panel.refresh(keep_selection=real.get("id"))
         self.tree_panel.expandir(real.get("id"))
         self.mark_dirty()
-        self._save_now()
-        self.statusBar().showMessage(
-            f"exemplo {nome} salvo dentro de {real.get('name')}, com o segredo trocado por "
-            f"{{{{nome}}}}", 9000
-        )
+        if self._save_now():
+            self.statusBar().showMessage(
+                f"exemplo {nome} salvo dentro de {real.get('name')}, com o segredo trocado por "
+                f"{{{{nome}}}}", 9000
+            )
 
     def _exemplo_da_arvore(self, involucro: dict) -> None:
         """Clicar no exemplo abre o request dono e mostra a resposta guardada."""
@@ -2279,11 +2382,29 @@ class MainWindow(QMainWindow):
         self.response.show_response(dados, enviado)
         self.statusBar().showMessage(f"exemplo {exemplo.get('name')}, so leitura", 5000)
 
+    def _dono_do_exemplo(self, exemplo: dict, *candidatos) -> dict | None:
+        """O request que guarda esse exemplo de verdade, ja na arvore de agora.
+
+        O pedido chega por dois caminhos: o painel Exemplos da aba e o menu da arvore. O
+        da arvore pode vir com a aba de outro request na frente, e decidir pela aba aberta
+        mexia no request errado: excluir nao excluia nada, e renomear trocava a lista de
+        exemplos da aba da frente pela do outro request. Pelo id, e nao pelo objeto, porque
+        depois de recarregar do disco o node que a aba guardou ja nao e o da arvore.
+        """
+        vivos = []
+        for no in candidatos:
+            if no:
+                vivos.append(self.tree_panel._by_id.get(no.get("id")) or no)
+        for no in vivos:
+            if any(i.get("id") == exemplo.get("id") for i in no.get("examples") or []):
+                return no
+        return vivos[0] if vivos else None
+
     def renomear_exemplo(self, node: dict, exemplo: dict) -> None:
-        editor, real = self._aba_e_no()
-        alvo = node if node.get("examples") is not None else real
+        _, real = self._aba_e_no()
+        alvo = self._dono_do_exemplo(exemplo, node, real)
         if alvo is None:
-            alvo = real if real is not None else node
+            return
         nome, ok = QInputDialog.getText(
             self, "Renomear exemplo", "Nome", text=exemplo.get("name") or ""
         )
@@ -2293,14 +2414,18 @@ class MainWindow(QMainWindow):
             if item.get("id") == exemplo.get("id"):
                 item["name"] = nome.strip()
                 break
+        editor = self.editors.get(alvo.get("id"))
         if editor is not None:
             editor.definir_exemplos(alvo.get("examples"))
         self.tree_panel.refresh()
         self.mark_dirty()
 
     def excluir_exemplo(self, node: dict, exemplo: dict) -> None:
-        editor, real = self._aba_e_no()
-        alvo = real if real is not None else node
+        _, real = self._aba_e_no()
+        alvo = self._dono_do_exemplo(exemplo, node, real)
+        if alvo is None:
+            return
+        editor = self.editors.get(alvo.get("id"))
         resposta = QMessageBox.question(
             self,
             "Excluir exemplo",
@@ -2335,7 +2460,11 @@ class MainWindow(QMainWindow):
             for nome, info in mapa.items()
             if not info.secret
         }
-        preparado = engine.prepare(alvo, plano)
+        # sem rede e sem cofre: o token do OAuth2 sai como {{oauth2_token}}. Antes o
+        # copiar pedia um token novo ao provedor com a janela parada, e o token vivo ia
+        # em claro justo na copia que promete trocar segredo por {{nome}}. A linhagem
+        # vai junto porque sem ela a auth herdada da pasta ou da collection ficava de fora
+        preparado = engine.prepare(alvo, plano, ancestry=self.ancestry_of(alvo), rede=False)
         texto = codegen.generate(
             "curl", preparado.method, preparado.url, preparado.headers, preparado.body
         )
@@ -2360,7 +2489,7 @@ class MainWindow(QMainWindow):
             for nome, info in mapa.items()
             if not info.secret
         }
-        preparado = engine.prepare(alvo, plano)
+        preparado = engine.prepare(alvo, plano, ancestry=self.ancestry_of(alvo), rede=False)
         QGuiApplication.clipboard().setText(preparado.url)
         self.statusBar().showMessage(f"url de {alvo.get('name')} copiada", 6000)
 
@@ -2381,7 +2510,15 @@ class MainWindow(QMainWindow):
             return
 
         mapa = self.variables_for(alvo)
-        preparado = engine.prepare(alvo, scopes.as_plain(mapa))
+        # o token do OAuth2 vem do cofre quando ja existe um valido. Sem ele, fica o
+        # {{oauth2_token}}: pedir um novo daqui travaria a janela esperando o provedor
+        preparado = engine.prepare(
+            alvo,
+            scopes.as_plain(mapa),
+            ancestry=self.ancestry_of(alvo),
+            cofre=ws.cofre(self.workspace_id) if self.workspace_id else None,
+            rede=False,
+        )
         texto = codegen.generate(
             "curl", preparado.method, preparado.url, preparado.headers, preparado.body
         )
@@ -2411,6 +2548,7 @@ class MainWindow(QMainWindow):
         editor = self.editors.get(node.get("id"))
         usadas = editor.used_vars() if editor else list(mapa)
         tem_segredo = any(mapa.get(nome) is not None and mapa[nome].secret for nome in usadas)
+        linhagem = self.ancestry_of(node)
 
         def construir(revelar: bool):
             plano = {}
@@ -2418,7 +2556,7 @@ class MainWindow(QMainWindow):
                 if info.secret and not revelar:
                     continue  # fica como {{nome}} no codigo, que e o padrao seguro
                 plano[nome] = {"value": info.value, "secret": info.secret}
-            preparado = engine.prepare(node, plano)
+            preparado = engine.prepare(node, plano, ancestry=linhagem, rede=False)
             return preparado.method, preparado.url, preparado.headers, preparado.body
 
         CodegenDialog(construir, tem_segredo, self).exec()
@@ -2609,19 +2747,46 @@ class MainWindow(QMainWindow):
         # como tal o app gravaria de volta e o proximo ciclo leria isso como mudanca
         if self._recarregando:
             return
+        self._falta_gravar = True
         self.statusBar().showMessage("alterado")
         self.save_timer.start()
 
-    def _save_now(self) -> None:
+    def _save_now(self) -> bool:
+        """Grava a arvore. Devolve se ela chegou ao disco.
+
+        Falhando, a alteracao continua marcada como pendente: o timer do disco para de
+        reler o disco por cima dela, e trocar de workspace ou fechar o app pergunta antes
+        de jogar ela fora.
+        """
         if not self.workspace_id:
-            return
+            return True
         self.save_timer.stop()
         try:
             resumo = ws.write_tree(self.workspace_id, self.tree_data, self._assinatura)
             self._assinatura = ws.assinatura(self.workspace_id)
-        except OSError as exc:
+        except (OSError, KeyError) as exc:
+            self._falta_gravar = True
+            self._erro_gravar = f"{type(exc).__name__}: {exc}"
             self.statusBar().showMessage(f"falha ao salvar: {exc}", 8000)
-            return
+            return False
+        self._falta_gravar = False
+        self._erro_gravar = ""
+
+        erro_cofre = resumo.get("erro_cofre")
+        if erro_cofre:
+            # O storage ja nao apaga nada quando o cofre falha, mas o valor novo so existe
+            # na memoria ate o cofre voltar. Calado, isso so aparecia ao reabrir o app. A
+            # caixa sai uma vez por erro: o salvar automatico repetiria a mesma a cada tecla.
+            self.registrar(f"o cofre nao gravou: {erro_cofre}", "erro", 8)
+            if getattr(self, "_cofre_avisado", None) != erro_cofre:
+                self._cofre_avisado = erro_cofre
+                QMessageBox.warning(
+                    self,
+                    "Cofre",
+                    "O valor das variaveis secretas nao foi gravado no cofre deste "
+                    "workspace, e os arquivos de ambiente ficaram como estavam no disco.\n\n"
+                    f"{erro_cofre}",
+                )
 
         conflitos = resumo.get("conflitos") or []
         if conflitos:
@@ -2634,14 +2799,29 @@ class MainWindow(QMainWindow):
                 self,
                 "Alteracao vinda de fora",
                 f"{quantos} arquivo(s) deste workspace mudaram fora do app desde que ele foi "
-                f"aberto, e acabaram de ser sobrescritos.\n\n"
+                f"aberto, ou nao eram um YAML que ele consegue ler, e acabaram de ser "
+                f"sobrescritos.\n\n"
                 f"Uma copia do que estava no disco ficou em .conduit/conflitos, dentro da pasta "
                 f"do workspace.\n\n"
                 + "\n".join(conflitos[:10]),
             )
-            return
+            return True
 
         self.registrar("workspace salvo no disco", "info", 2)
+        return True
+
+    def _seguir_sem_gravar(self, acao: str) -> bool:
+        """Pergunta se segue mesmo com alteracao da arvore que o disco recusou."""
+        resposta = QMessageBox.question(
+            self,
+            acao,
+            "As ultimas alteracoes deste workspace nao chegaram ao disco.\n\n"
+            f"{self._erro_gravar}\n\n"
+            f"{acao} mesmo assim e perder o que nao foi gravado?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return resposta == QMessageBox.StandardButton.Yes
 
     def closeEvent(self, event):  # noqa: N802
         sujas = [
@@ -2669,7 +2849,12 @@ class MainWindow(QMainWindow):
                 return
 
         self._guardar_rascunhos()
-        self._save_now()
+        if not self._save_now() and not self._seguir_sem_gravar("Sair"):
+            # a falha ja foi mostrada: fechar assim mesmo levava junto a unica copia do
+            # que mudou na arvore, e o rascunho das abas nao cobre renomear, mover nem
+            # variavel de ambiente
+            event.ignore()
+            return
         for navegador in list(self.sftp_abas.values()):
             navegador.encerrar()
         self.sftp_abas.clear()
@@ -2826,6 +3011,12 @@ class MainWindow(QMainWindow):
         if aberto is not None:
             self.tabs.setCurrentWidget(aberto)
             return
+        if perfil_id in self._sftp_conectando:
+            # Duplo clique repetido num servidor lento abria duas conexoes. A segunda
+            # aba tomava o lugar da primeira no registro, e a primeira ficava orfa: fechar
+            # ela nao encerrava a sessao, que seguia viva ate o app fechar.
+            self.statusBar().showMessage("a conexao com esse servidor ja esta a caminho", 4000)
+            return
 
         perfil = self._sftp_perfil(perfil_id)
         if perfil is None:
@@ -2849,8 +3040,14 @@ class MainWindow(QMainWindow):
 
         conexao = sftp.Conexao(perfil, self._sftp_known_hosts())
         self.statusBar().showMessage(f"conectando em {perfil.rotulo()}")
+        workspace = self.workspace_id
 
         def deu_certo(_=None) -> None:
+            self._sftp_conectando.discard(perfil_id)
+            if self.workspace_id != workspace or perfil_id in self.sftp_abas:
+                # a conexao chegou depois de trocar de workspace, ou alguem ja abriu a aba
+                conexao.fechar()
+                return
             if guardar_senha:
                 cofre.set(sftp.CHAVE_SENHA.format(id=perfil.id), senha)
             if guardar_frase:
@@ -2858,6 +3055,7 @@ class MainWindow(QMainWindow):
             self._sftp_montar_aba(perfil, conexao)
 
         def deu_errado(erro) -> None:
+            self._sftp_conectando.discard(perfil_id)
             if isinstance(erro, (sftp.ChaveDesconhecida, sftp.ChaveTrocada)):
                 if ChaveDialog.confia(erro, self):
                     self.sftp_abrir(perfil_id, senha, frase, confiar=True)
@@ -2880,6 +3078,7 @@ class MainWindow(QMainWindow):
         tarefa = Tarefa(conexao.abrir, senha=senha, frase=frase, confiar=confiar)
         tarefa.sinais.pronto.connect(deu_certo)
         tarefa.sinais.estourou.connect(deu_errado)
+        self._sftp_conectando.add(perfil_id)
         self._tasks.add(tarefa)
         for sinal in (tarefa.sinais.pronto, tarefa.sinais.estourou):
             sinal.connect(lambda *_, t=tarefa: self._tasks.discard(t))
