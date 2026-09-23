@@ -15,6 +15,7 @@ from pathlib import Path
 
 from ..workspaces import new_id
 from . import Resultado
+from .postman import _texto
 
 
 def detectar(caminho: Path) -> float:
@@ -190,8 +191,9 @@ def importar(caminho: Path) -> Resultado:
                 {
                     "id": new_id("env"),
                     "name": recurso.get("name") or "ambiente",
+                    # como no Postman: com str() o true virava True e o nulo virava None
                     "values": [
-                        {"key": chave, "value": str(valor), "enabled": True}
+                        {"key": chave, "value": _texto(valor), "enabled": True}
                         for chave, valor in valores.items()
                     ],
                 }
@@ -214,10 +216,13 @@ def importar(caminho: Path) -> Resultado:
         if recurso.get("_type") == "workspace"
     ]
     if not raizes:
+        # Sem workspace, raiz e a pasta cujo pai nao veio no arquivo. Todo recurso entra
+        # em filhos, ate o de pai nulo, entao procurar quem nao e filho nao achava nenhuma
+        # e o import terminava sem collection e sem erro.
         raizes = [
-            identificador
-            for identificador in por_id
-            if identificador not in {f for lista in filhos.values() for f in lista}
+            recurso["_id"]
+            for recurso in recursos
+            if recurso.get("_type") == "request_group" and recurso.get("parentId") not in por_id
         ]
 
     for raiz in raizes:
@@ -302,7 +307,11 @@ def exportar(tree: dict, colecoes: list, destino: Path, com_segredo: bool = Fals
 
                 recurso["body"] = {
                     "mimeType": "application/x-www-form-urlencoded",
-                    "params": [{"name": c, "value": v} for c, v in parse_qsl(corpo.get("raw") or "")],
+                    # campo vazio tambem e campo, ver o export do Postman
+                    "params": [
+                        {"name": c, "value": v}
+                        for c, v in parse_qsl(corpo.get("raw") or "", keep_blank_values=True)
+                    ],
                 }
             elif corpo.get("raw"):
                 recurso["body"] = {

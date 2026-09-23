@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 
 from ..workspaces import new_id
 from . import Resultado
+from .postman import _texto
 
 CHAVE_CAMINHO = re.compile(r"\{([^}/]+)\}")
 METODOS = ("get", "post", "put", "patch", "delete", "head", "options")
@@ -160,7 +161,8 @@ def importar(caminho: Path) -> Resultado:
                 exemplo = parametro.get("example")
                 if exemplo is None:
                     exemplo = _exemplo_de_esquema(_resolver(dados, parametro.get("schema") or {}))
-                valor = "" if exemplo in ({}, [], None) else str(exemplo)
+                # booleano sai como se escreve na url: com str() o false virava False
+                valor = "" if exemplo in ({}, [], None) else _texto(exemplo)
                 if onde == "query":
                     query.append(
                         {"key": nome_p, "value": valor, "enabled": bool(parametro.get("required"))}

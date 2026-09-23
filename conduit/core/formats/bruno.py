@@ -143,15 +143,21 @@ def ler_bru(caminho: Path, avisos: list) -> dict | None:
         "origin": {"bruno": str(caminho.name)},
     }
 
-    if "?" in url:
+    # O Bruno grava a query duas vezes, na url e no bloco params:query, que tambem guarda
+    # o param desligado. Lidos os dois, todo param vinha em dobro e saia repetido no envio.
+    # A url so vale quando o bloco nao existe.
+    bloco = _pares(mapa.get("params:query", ""))
+    if bloco:
+        node["params"] = [
+            {"key": chave, "value": valor, "enabled": ativo} for chave, valor, ativo in bloco
+        ]
+    elif "?" in url:
         from urllib.parse import parse_qsl
 
         node["params"] = [
             {"key": c, "value": v, "enabled": True}
             for c, v in parse_qsl(url.split("?", 1)[1], keep_blank_values=True)
         ]
-    for chave, valor, ativo in _pares(mapa.get("params:query", "")):
-        node["params"].append({"key": chave, "value": valor, "enabled": ativo})
 
     if "body:json" in mapa:
         node["body"] = {"mode": "json", "raw": mapa["body:json"].strip()}
@@ -209,6 +215,11 @@ def _pasta(caminho: Path, avisos: list, ignorar: set | None = None) -> dict:
     if meta.exists():
         dados = _dicionario({c: v for c, v in _blocos(meta.read_text(encoding="utf-8-sig"))}.get("meta", ""))
         node["name"] = dados.get("name") or caminho.name
+        # o seq da pasta tambem vale: sem ele toda pasta ia pro fim, depois dos requests
+        try:
+            node["_seq"] = int(dados.get("seq"))
+        except (TypeError, ValueError):
+            pass
 
     ignorar = ignorar or set()
     filhos = []
@@ -329,7 +340,8 @@ def _escrever_bru(node: dict, destino: Path, seq: int) -> None:
         from urllib.parse import parse_qsl
 
         linhas.append("body:form-urlencoded {")
-        for chave, valor in parse_qsl(corpo.get("raw") or ""):
+        # campo vazio tambem e campo, ver o export do Postman
+        for chave, valor in parse_qsl(corpo.get("raw") or "", keep_blank_values=True):
             linhas.append(f"  {chave}: {valor}")
         linhas += ["}", ""]
 

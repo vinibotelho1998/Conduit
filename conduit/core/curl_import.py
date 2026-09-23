@@ -69,8 +69,15 @@ def _dividir(texto: str) -> list[str]:
     try:
         return shlex.split(texto, posix=True)
     except ValueError:
-        # aspas desbalanceadas, comum quando o comando vem cortado de um chat
-        return shlex.split(texto, posix=False)
+        pass
+    # aspas desbalanceadas, comum quando o comando vem cortado de um chat. O modo nao
+    # posix recusa aspa aberta do mesmo jeito, entao fecha a que ficou aberta e tenta de novo
+    for fecho in ("'", '"'):
+        try:
+            return shlex.split(texto + fecho, posix=True)
+        except ValueError:
+            continue
+    return shlex.split(texto, posix=False)
 
 
 def importar(comando: str) -> Importado:
@@ -89,6 +96,8 @@ def importar(comando: str) -> Importado:
     corpos: list[str] = []
     metodo_explicito = None
     virar_query = False
+    # teve -d ou -F, mesmo que o conteudo nao tenha vindo: pro curl isso ja e POST
+    pediu_corpo = False
     forms: list[tuple[str, str]] = []
     urls: list[str] = []
 
@@ -114,19 +123,38 @@ def importar(comando: str) -> Importado:
                     {"key": chave.strip(), "value": valor.strip(), "enabled": True}
                 )
         elif atual in ("-d", "--data", "--data-raw", "--data-binary", "--data-ascii"):
-            corpos.append(consome())
+            dado = consome()
+            pediu_corpo = True
+            if atual != "--data-raw" and dado.startswith("@"):
+                # o curl le o corpo desse arquivo, que nao veio junto. Mandado como texto,
+                # o servidor recebia @corpo.json no lugar do conteudo, igual ao -F
+                saida.ignorados.append(f"{atual} {dado}, envio de arquivo")
+            else:
+                corpos.append(dado)
         elif atual == "--data-urlencode":
             corpos.append(consome())
+            pediu_corpo = True
         elif atual == "--json":
             corpos.append(consome())
+            pediu_corpo = True
             if not any(h["key"].lower() == "content-type" for h in saida.headers):
                 saida.headers.append(
                     {"key": "Content-Type", "value": "application/json", "enabled": True}
                 )
         elif atual in ("-F", "--form"):
             bruto = consome()
+            pediu_corpo = True
             chave, _, valor = bruto.partition("=")
-            forms.append((chave, valor))
+            if valor.startswith(("@", "<")):
+                # envio de arquivo e multipart, que o app ainda nao manda. Convertido
+                # calado, o servidor recebia o texto %40nota.pdf no lugar do arquivo
+                saida.ignorados.append(f"{atual} {chave}={valor}, envio de arquivo")
+            else:
+                forms.append((chave, valor))
+                if "multipart" not in " ".join(saida.ignorados):
+                    saida.ignorados.append(
+                        f"{atual} sai como form urlencoded, e nao multipart"
+                    )
         elif atual in ("-u", "--user"):
             usuario, _, senha = consome().partition(":")
             saida.auth = {"type": "basic", "username": usuario, "password": senha}
@@ -192,12 +220,15 @@ def importar(comando: str) -> Importado:
             (h["value"] for h in saida.headers if h["key"].lower() == "content-type"), ""
         ).lower()
         eh_json = "json" in tipo or corpo_junto.lstrip().startswith(("{", "["))
-        saida.body = {"mode": "json" if eh_json else "raw", "raw": corpo_junto}
+        # sem Content-Type o curl manda o -d como form urlencoded. Como raw ele saia sem
+        # Content-Type nenhum, e o servidor nao lia os campos
+        modo = "json" if eh_json else "raw" if tipo else "form"
+        saida.body = {"mode": modo, "raw": corpo_junto}
 
-    # metodo: o -X manda, senao corpo implica POST
+    # metodo: o -X manda, senao corpo implica POST, mesmo o de arquivo que ficou de fora
     if metodo_explicito:
         saida.method = metodo_explicito
-    elif saida.body.get("mode") != "none":
+    elif saida.body.get("mode") != "none" or (pediu_corpo and not virar_query):
         saida.method = "POST"
     else:
         saida.method = "GET"

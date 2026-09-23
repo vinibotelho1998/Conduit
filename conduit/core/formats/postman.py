@@ -67,7 +67,9 @@ def _url_de(bruto) -> tuple[str, list]:
 
     crua = bruto.get("raw") or ""
     if crua:
-        return crua.split("?")[0], query
+        # sem a lista query, que e opcional no formato, a query so existe dentro do raw.
+        # Cortar ali jogava fora todo parametro; fica na url, como na url em texto
+        return (crua.split("?")[0], query) if query else (crua, [])
 
     esquema = bruto.get("protocol") or "https"
     host = bruto.get("host")
@@ -347,8 +349,10 @@ def _item_para(node: dict) -> dict:
 
         pedido["body"] = {
             "mode": "urlencoded",
+            # campo vazio, como scope=, tambem e campo: sem keep_blank_values ele sumia
             "urlencoded": [
-                {"key": c, "value": v} for c, v in parse_qsl(corpo.get("raw") or "")
+                {"key": c, "value": v}
+                for c, v in parse_qsl(corpo.get("raw") or "", keep_blank_values=True)
             ],
         }
     elif corpo.get("mode") in ("json", "raw") and corpo.get("raw"):
@@ -367,7 +371,7 @@ def _item_para(node: dict) -> dict:
     return {"name": node.get("name") or "", "request": pedido}
 
 
-def exportar_collection(colecao: dict, destino: Path) -> Path:
+def exportar_collection(colecao: dict, destino: Path, com_segredo: bool = False) -> Path:
     saida = {
         "info": {
             "name": colecao.get("name") or "collection",
@@ -377,7 +381,12 @@ def exportar_collection(colecao: dict, destino: Path) -> Path:
         "item": [_item_para(f) for f in colecao.get("items") or []],
     }
     variaveis = [
-        {"key": v.get("key"), "value": v.get("value") or "", "disabled": v.get("enabled") is False}
+        {
+            "key": v.get("key"),
+            # variavel secreta da collection sai so com o nome, como a do ambiente
+            "value": (v.get("value") or "") if (com_segredo or not v.get("secret")) else "",
+            "disabled": v.get("enabled") is False,
+        }
         for v in colecao.get("variables") or []
         if v.get("key")
     ]

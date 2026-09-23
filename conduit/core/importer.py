@@ -127,27 +127,33 @@ def exportar(tree: dict, colecoes: list, formato: str, destino: str | Path, com_
     destino = Path(destino)
 
     if formato == "postman":
-        if len(colecoes) == 1:
-            return postman.exportar_collection(colecoes[0], destino)
-        destino.mkdir(parents=True, exist_ok=True)
         from .storage import slug
 
-        # nomes que dao o mesmo slug, como "Pagamentos v1" e "Pagamentos (v1)", gravavam
-        # no mesmo arquivo, e so a ultima collection sobrava na pasta exportada
-        usados: set[str] = set()
-        for colecao in colecoes:
-            postman.exportar_collection(
-                colecao,
-                destino / f"{slug(colecao.get('name') or 'collection', usados)}.postman_collection.json",
-            )
+        if len(colecoes) == 1:
+            saida = postman.exportar_collection(colecoes[0], destino, com_segredo)
+            pasta = destino.parent
+        else:
+            destino.mkdir(parents=True, exist_ok=True)
+            pasta = saida = destino
+            # nomes que dao o mesmo slug, como "Pagamentos v1" e "Pagamentos (v1)", gravavam
+            # no mesmo arquivo, e so a ultima collection sobrava na pasta exportada
+            usados: set[str] = set()
+            for colecao in colecoes:
+                postman.exportar_collection(
+                    colecao,
+                    destino / f"{slug(colecao.get('name') or 'collection', usados)}.postman_collection.json",
+                    com_segredo,
+                )
+        # os ambientes vao junto tambem com uma collection so: sem eles, quem recebe o
+        # arquivo abre {{baseUrl}} sem valor nenhum
         usados = set()
         for env in tree.get("environments") or []:
             postman.exportar_environment(
                 env,
-                destino / f"{slug(env.get('name') or 'ambiente', usados)}.postman_environment.json",
+                pasta / f"{slug(env.get('name') or 'ambiente', usados)}.postman_environment.json",
                 com_segredo,
             )
-        return destino
+        return saida
 
     if formato == "insomnia":
         return insomnia.exportar(tree, colecoes, destino, com_segredo)
