@@ -126,11 +126,34 @@ def list_workspaces() -> dict:
     return _read_registry()
 
 
-def create_workspace(name: str, color: str | None = None) -> dict:
+def id_livre(name: str) -> str:
+    """Id pra um workspace novo que nao cai em cima de nenhum outro, listado ou nao.
+
+    Serve pro Criar outro vazio, quando o nome bate com a pasta de um workspace que saiu
+    da lista e a pessoa nao quer trazer ele de volta.
+    """
+    base = slug(name)
+    registrados = {w["id"] for w in _read_registry()["workspaces"]}
+    candidato, numero = base, 2
+    while candidato in registrados or ja_existe_no_disco(candidato):
+        candidato = f"{base}-{numero}"
+        numero += 1
+    return candidato
+
+
+def create_workspace(name: str, color: str | None = None, wid: str | None = None) -> dict:
     reg = _read_registry()
-    wid = slug(name)
-    if any(w["id"] == wid for w in reg["workspaces"]):
-        raise ValueError(f"ja existe workspace com o id {wid}")
+    wid = wid or slug(name)
+    existente = next((w for w in reg["workspaces"] if w["id"] == wid), None)
+    if existente is not None:
+        # o id nunca aparece na tela: "ja existe workspace com o id projeto-novo" nao dizia
+        # com qual deles o nome tinha batido
+        if (existente.get("name") or "").strip().lower() == name.strip().lower():
+            raise ValueError("ja existe um workspace com esse nome")
+        raise ValueError(
+            f"esse nome fica igual ao do workspace {existente.get('name')} sem acento e sem "
+            "simbolo. Escolha outro"
+        )
 
     path = WORKSPACES_DIR / wid
     for sub in ("collections", "environments", ".secrets", "certs", "history", "cookies"):
@@ -381,7 +404,9 @@ def new_id(prefix: str = "id") -> str:
 
 
 PREFERENCES = ROOT / "preferencias.json"
-PREFERENCES_PADRAO = {"tema": "escuro", "densidade": "confortavel"}
+# exemplosDispensados: o workspace de exemplos foi tirado da lista ou mandado pra lixeira,
+# e nao volta sozinho na abertura seguinte
+PREFERENCES_PADRAO = {"tema": "escuro", "densidade": "confortavel", "exemplosDispensados": False}
 
 
 def read_preferences() -> dict:
@@ -391,7 +416,11 @@ def read_preferences() -> dict:
         return dict(PREFERENCES_PADRAO)
     try:
         dados = json.loads(PREFERENCES.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
+        # ValueError pega tambem o arquivo editado por fora em outra codificacao, que
+        # derrubava a abertura do app antes de a janela existir
+        return dict(PREFERENCES_PADRAO)
+    if not isinstance(dados, dict):
         return dict(PREFERENCES_PADRAO)
     saida = dict(PREFERENCES_PADRAO)
     saida.update({k: v for k, v in dados.items() if k in PREFERENCES_PADRAO})

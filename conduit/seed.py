@@ -469,6 +469,9 @@ def ensure_examples(force: bool = False) -> str:
 
 def seed() -> None:
     registry = ws.list_workspaces()
-    ensure_examples()
+    # Tirado da lista ou mandado pra lixeira, o de exemplos voltava a cada abertura. So
+    # volta sozinho quando nao sobrou workspace nenhum, que e o primeiro uso.
+    if not registry["workspaces"] or not ws.read_preferences().get("exemplosDispensados"):
+        ensure_examples()
     if not registry["workspaces"]:
         ws.set_active(EXAMPLES_ID)
