@@ -3,7 +3,8 @@
 Formato:
 
     workspace/
-      settings.yaml            ambiente ativo e versao do formato
+      settings.yaml            certificados, servidores SFTP e versao do formato
+      .conduit/estado.json     ambiente ativo, ordem e pasta aberta, de cada pessoa
       globals.yaml             variaveis globais do workspace
       environments/
         publico.yaml
@@ -29,6 +30,7 @@ qualquer reordenacao renomear meio mundo de arquivo, e o diff ficaria ilegivel.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from pathlib import Path
@@ -38,6 +40,15 @@ import yaml
 from .vault import Vault, chave_de
 
 SCHEMA_VERSION = 1
+
+# O que e de cada pessoa, e nao do projeto: ambiente ativo, ordem da arvore e pasta
+# aberta. Mora em .conduit, que fica fora do git. No settings.yaml e no _folder.yaml,
+# cada clique virava diff, e o colega que puxava o repo depois de voce trocar pra prd
+# abria o app ja em prd sem ter escolhido.
+ESTADO_LOCAL = Path(".conduit") / "estado.json"
+
+# Dono das globais no cofre. Ambiente, collection e pasta usam o proprio id.
+DONO_GLOBAIS = "__globais__"
 
 # Ordem fixa de chave na gravacao. Sem isso o YAML sai na ordem do dicionario e o diff
 # do git fica cheio de ruido que nao e mudanca de verdade.
@@ -232,6 +243,26 @@ def _pares(lista) -> list:
     return saida
 
 
+def _preencher_do_cofre(valores: list, dono: str, cofre) -> list:
+    """Traz do cofre o valor de cada variavel secreta que o arquivo guardou vazia."""
+    for item in valores:
+        if item.get("secret") and not item.get("value"):
+            item["value"] = cofre.get(chave_de(dono, item.get("key") or ""))
+    return valores
+
+
+def _separar_segredos(valores, dono: str, segredos: dict) -> list:
+    """Copia das linhas pro arquivo, com o valor secreto tirado e posto em `segredos`."""
+    publicos = []
+    for item in valores or []:
+        copia = dict(item)
+        if copia.get("secret"):
+            segredos[chave_de(dono, copia.get("key") or "")] = copia.get("value") or ""
+            copia["value"] = ""
+        publicos.append(copia)
+    return publicos
+
+
 def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
     raiz = Path(raiz)
     cofre = cofre if cofre is not None else Vault(raiz)
@@ -246,7 +277,11 @@ def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
         # so o contrato do servidor SFTP: host, porta e usuario. Senha e frase da chave
         # ficam no cofre, exatamente como o valor de variavel secreta.
         "sftp": _mapas(settings.get("sftp")),
-        "globals": _pares(_ler(raiz / "globals.yaml").get("values")),
+        # global, collection e pasta seguem a mesma regra do ambiente: o arquivo guarda
+        # o nome e a marca de secreta, e o valor secreto mora no cofre
+        "globals": _preencher_do_cofre(
+            _pares(_ler(raiz / "globals.yaml").get("values")), DONO_GLOBAIS, cofre
+        ),
         "environments": [],
         "collections": [],
     }
@@ -259,12 +294,9 @@ def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
             if not dados:
                 continue
             env_id = _texto(dados.get("id")) or arquivo.stem
-            valores = _pares(dados.get("values"))
             # O arquivo versionado guarda so o contrato: nome da variavel e a marca de
             # secreta. O valor secreto vem do cofre, que fica fora do git.
-            for item in valores:
-                if item.get("secret") and not item.get("value"):
-                    item["value"] = cofre.get(chave_de(env_id, item.get("key") or ""))
+            valores = _preencher_do_cofre(_pares(dados.get("values")), env_id, cofre)
             envs.append(
                 {
                     "id": env_id,
@@ -280,27 +312,80 @@ def ler_workspace(raiz: str | Path, cofre: Vault | None = None) -> dict:
     if pasta_cols.is_dir():
         colecoes = []
         for diretorio in sorted(p for p in pasta_cols.iterdir() if p.is_dir()):
-            node = _ler_grupo(diretorio, "collection")
+            node = _ler_grupo(diretorio, "collection", cofre)
             if node:
                 colecoes.append(node)
         colecoes.sort(key=lambda n: n.pop("_seq", 999))
         tree["collections"] = colecoes
 
+    # Workspace gravado por versao anterior nao tem o estado local: fica valendo o que
+    # esta no settings.yaml e no _folder.yaml, e o primeiro salvar ja cria o arquivo.
+    estado = _ler_estado(raiz)
+    if "activeEnv" in estado:
+        tree["activeEnv"] = _texto(estado.get("activeEnv")) or None
+    if "sortMode" in estado:
+        tree["sortMode"] = _texto(estado.get("sortMode")) or "manual"
+    if isinstance(estado.get("expandidos"), list):
+        abertos = {str(i) for i in estado["expandidos"]}
+        for node in _grupos(tree["collections"]):
+            node["expanded"] = node.get("id") in abertos
+
     return tree
 
 
-def _ler_grupo(diretorio: Path, tipo: str) -> dict | None:
+def _grupos(nos):
+    for node in nos or []:
+        if node.get("type") in ("collection", "folder"):
+            yield node
+            yield from _grupos(node.get("items"))
+
+
+def _ler_estado(raiz: Path) -> dict:
+    try:
+        dados = json.loads((raiz / ESTADO_LOCAL).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return dados if isinstance(dados, dict) else {}
+
+
+def _gravar_estado(raiz: Path, tree: dict) -> None:
+    dados = {
+        "activeEnv": tree.get("activeEnv"),
+        "sortMode": tree.get("sortMode") or "manual",
+        "expandidos": sorted(
+            str(n.get("id")) for n in _grupos(tree.get("collections")) if n.get("expanded")
+        ),
+    }
+    caminho = raiz / ESTADO_LOCAL
+    texto = json.dumps(dados, indent=2, ensure_ascii=False)
+    try:
+        if caminho.exists() and caminho.read_text(encoding="utf-8") == texto:
+            return
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        temporario = caminho.with_name(caminho.name + ".tmp")
+        temporario.write_text(texto, encoding="utf-8")
+        temporario.replace(caminho)
+    except OSError:
+        # e conforto de quem usa, e nao dado do projeto: sem ele o app abre como antes
+        pass
+
+
+def _ler_grupo(diretorio: Path, tipo: str, cofre=None) -> dict | None:
     arquivo = diretorio / ("_collection.yaml" if tipo == "collection" else "_folder.yaml")
     dados = _ler(arquivo) if arquivo.exists() else {}
     if not dados and not any(diretorio.iterdir()):
         return None
 
+    grupo_id = _texto(dados.get("id")) or diretorio.name
+    variaveis = _pares(dados.get("variables"))
+    if cofre is not None:
+        _preencher_do_cofre(variaveis, grupo_id, cofre)
     node = {
-        "id": _texto(dados.get("id")) or diretorio.name,
+        "id": grupo_id,
         "type": tipo,
         "name": _texto(dados.get("name")) or diretorio.name,
         "expanded": bool(dados.get("expanded")),
-        "variables": _pares(dados.get("variables")),
+        "variables": variaveis,
         "items": [],
         "_seq": _ordem(dados.get("seq")),
     }
@@ -311,7 +396,7 @@ def _ler_grupo(diretorio: Path, tipo: str) -> dict | None:
     filhos = []
     for caminho in sorted(diretorio.iterdir()):
         if caminho.is_dir():
-            filho = _ler_grupo(caminho, "folder")
+            filho = _ler_grupo(caminho, "folder", cofre)
             if filho:
                 filhos.append(filho)
         elif caminho.suffix == ".yaml" and not caminho.name.startswith("_"):
@@ -386,13 +471,13 @@ def gravar_workspace(
                 _guardar_conflito(raiz, caminho)
                 resumo["conflitos"].append(relativo)
 
+    # ambiente ativo e ordem da arvore sao de quem usa, e vao pro estado local
+    _gravar_estado(raiz, tree)
     caminho = raiz / "settings.yaml"
     if _escrever(
         caminho,
         {
             "schemaVersion": SCHEMA_VERSION,
-            "activeEnv": tree.get("activeEnv"),
-            "sortMode": tree.get("sortMode") or "manual",
             "certificates": tree.get("certificates") or [],
             "caFile": tree.get("caFile") or "",
             "sftp": tree.get("sftp") or [],
@@ -403,17 +488,14 @@ def gravar_workspace(
         resumo["escritos"] += 1
     vivos.add(caminho)
 
-    caminho = raiz / "globals.yaml"
-    if _escrever(
-        caminho, {"schemaVersion": SCHEMA_VERSION, "values": tree.get("globals") or []}, raiz, resumo
-    ):
-        resumo["escritos"] += 1
-    vivos.add(caminho)
+    segredos: dict[str, str] = {}
+    globais = _separar_segredos(tree.get("globals"), DONO_GLOBAIS, segredos)
+    globais_tem_segredo = bool(segredos)
+    _segredos_dos_grupos(tree.get("collections"), segredos)
 
     pasta_envs = raiz / "environments"
     pasta_envs.mkdir(exist_ok=True)
     usados: set[str] = set()
-    segredos: dict[str, str] = {}
     arquivos_env: list[tuple[Path, dict]] = []
 
     for indice, env in enumerate(tree.get("environments") or []):
@@ -423,13 +505,7 @@ def gravar_workspace(
 
         # Separa o valor secreto antes de escrever. O que vai pro arquivo e o contrato,
         # o valor vai pro cofre cifrado.
-        publicos = []
-        for item in env.get("values") or []:
-            copia = dict(item)
-            if copia.get("secret"):
-                segredos[chave_de(env_id, copia.get("key") or "")] = copia.get("value") or ""
-                copia["value"] = ""
-            publicos.append(copia)
+        publicos = _separar_segredos(env.get("values"), env_id, segredos)
 
         dados = _ordenar(
             {
@@ -462,13 +538,21 @@ def gravar_workspace(
     else:
         vivos.update(pasta_envs.glob("*.yaml"))
 
+    caminho = raiz / "globals.yaml"
+    if cofre_ok or not globais_tem_segredo or not caminho.exists():
+        if _escrever(caminho, {"schemaVersion": SCHEMA_VERSION, "values": globais}, raiz, resumo):
+            resumo["escritos"] += 1
+    vivos.add(caminho)
+
     pasta_cols = raiz / "collections"
     pasta_cols.mkdir(exist_ok=True)
     usados = set()
     diretorios_vivos: set[Path] = set()
     for indice, colecao in enumerate(tree.get("collections") or []):
         destino = pasta_cols / slug(colecao.get("name") or "collection", usados)
-        _gravar_grupo(destino, colecao, indice, "collection", vivos, diretorios_vivos, resumo, raiz)
+        _gravar_grupo(
+            destino, colecao, indice, "collection", vivos, diretorios_vivos, resumo, raiz, cofre_ok
+        )
 
     # Limpeza do que nao pertence mais a arvore. So mexe dentro de collections e de
     # environments: settings.yaml, globals.yaml e qualquer outra coisa na raiz do
@@ -507,28 +591,43 @@ def gravar_workspace(
     return resumo
 
 
+def _segredos_dos_grupos(nos, segredos: dict) -> None:
+    """Junta o valor secreto das variaveis de collection e pasta, pra ir pro cofre."""
+    for node in nos or []:
+        if node.get("type") == "request":
+            continue
+        _separar_segredos(node.get("variables"), node.get("id") or "", segredos)
+        _segredos_dos_grupos(node.get("items"), segredos)
+
+
 def _gravar_grupo(
-    destino: Path, node: dict, seq: int, tipo: str, vivos, diretorios, resumo, raiz: Path | None = None
+    destino: Path, node: dict, seq: int, tipo: str, vivos, diretorios, resumo,
+    raiz: Path | None = None, cofre_ok: bool = True,
 ) -> None:
     destino.mkdir(parents=True, exist_ok=True)
     diretorios.add(destino)
 
     arquivo = destino / ("_collection.yaml" if tipo == "collection" else "_folder.yaml")
+    descartados: dict[str, str] = {}
+    variaveis = _separar_segredos(node.get("variables"), node.get("id") or "", descartados)
     dados = _ordenar(
         {
             "schemaVersion": SCHEMA_VERSION,
             "id": node.get("id"),
             "seq": seq,
             "name": node.get("name"),
-            "expanded": bool(node.get("expanded")),
-            "variables": node.get("variables") or [],
+            # pasta aberta ou fechada e do estado local, ver ESTADO_LOCAL
+            "variables": variaveis,
             "auth": node.get("auth") or None,
             "origin": node.get("origin"),
         },
         ORDEM_GRUPO,
     )
-    if _escrever(arquivo, dados, raiz, resumo):
-        resumo["escritos"] += 1
+    # com o cofre recusando, o arquivo que ainda tem o segredo em claro fica como esta,
+    # igual ao ambiente: ele e o unico lugar onde o valor existe fora da memoria
+    if cofre_ok or not descartados or not arquivo.exists():
+        if _escrever(arquivo, dados, raiz, resumo):
+            resumo["escritos"] += 1
     vivos.add(arquivo)
 
     usados: set[str] = set()
@@ -560,4 +659,6 @@ def _gravar_grupo(
                 resumo["escritos"] += 1
             vivos.add(caminho)
         else:
-            _gravar_grupo(destino / nome, filho, indice, "folder", vivos, diretorios, resumo, raiz)
+            _gravar_grupo(
+                destino / nome, filho, indice, "folder", vivos, diretorios, resumo, raiz, cofre_ok
+            )

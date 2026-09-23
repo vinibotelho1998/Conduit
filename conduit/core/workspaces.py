@@ -286,9 +286,11 @@ def duplicate_workspace(wid: str, nome: str) -> dict:
         alvo = Path(origem["path"]) / sub
         if alvo.exists():
             shutil.copytree(alvo, destino / sub, dirs_exist_ok=True)
-    for arquivo in ("settings.yaml", "globals.yaml"):
+    # o estado local vai junto: e onde mora o ambiente ativo, que antes vinha no settings
+    for arquivo in ("settings.yaml", "globals.yaml", storage.ESTADO_LOCAL):
         alvo = Path(origem["path"]) / arquivo
         if alvo.exists():
+            (destino / arquivo).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(alvo, destino / arquivo)
 
     return novo
@@ -344,9 +346,21 @@ def _recolher_segredos_soltos(raiz: Path, tree: dict) -> int:
     Vale pra quem ja tinha workspace antes do cofre existir. Roda uma vez: acha valor
     secreto no YAML, manda pro cofre e regrava o arquivo sem ele.
     """
+    listas = [tree.get("globals") or []]
+    listas += [env.get("values") or [] for env in tree.get("environments") or []]
+
+    def grupos(nos):
+        for node in nos or []:
+            if node.get("type") != "request":
+                listas.append(node.get("variables") or [])
+                grupos(node.get("items"))
+
+    # global, collection e pasta tambem: ate aqui a caixa Secreto delas gravava o valor
+    # em claro no YAML versionado
+    grupos(tree.get("collections"))
     soltos = 0
-    for env in tree.get("environments") or []:
-        for item in env.get("values") or []:
+    for lista in listas:
+        for item in lista:
             if item.get("secret") and item.get("value"):
                 soltos += 1
     if soltos:
