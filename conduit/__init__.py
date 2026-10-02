@@ -8,8 +8,8 @@ sai reto, dispara no pico, e volta ao normal quando a resposta chega.
 APP_NAME = "Conduit"
 APP_ID = "conduit.app"
 
-__version__ = "0.7.9"
-VERSION_DATE = "2026-09-05"
+__version__ = "0.7.10"
+VERSION_DATE = "2026-10-02"
 
 # Fases entregues ate aqui, mostradas na janela Sobre.
 VERSION_LABEL = f"{__version__}  ·  {VERSION_DATE}"
