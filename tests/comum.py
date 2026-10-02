@@ -9,12 +9,12 @@ quem so quer compilar o instalador.
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
+_CASAS: list[tempfile.TemporaryDirectory] = []
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 if str(RAIZ / "tests") not in sys.path:
@@ -53,8 +53,10 @@ class Placar:
 
 def casa_limpa(nome: str) -> Path:
     """Pasta de dados so deste teste. Nunca encosta no Conduit de verdade."""
-    destino = Path(tempfile.gettempdir()) / f"conduit-teste-{nome}"
-    shutil.rmtree(destino, ignore_errors=True)
+    # Duas execucoes simultaneas nao podem apagar o workspace uma da outra.
+    casa = tempfile.TemporaryDirectory(prefix=f"conduit-teste-{nome}-", ignore_cleanup_errors=True)
+    _CASAS.append(casa)
+    destino = Path(casa.name)
     os.environ["CONDUIT_HOME"] = str(destino)
     return destino
 

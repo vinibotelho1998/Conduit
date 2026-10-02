@@ -83,6 +83,7 @@ a = Analysis(
     datas=[
         (os.path.join(ROOT, "CHANGELOG.md"), "."),
         (os.path.join(ROOT, "LICENSE"), "."),
+        (os.path.join(ROOT, "NOTICE.md"), "."),
     ],
     hiddenimports=[],
     hookspath=[],

@@ -51,6 +51,7 @@ class Handle(SFTPHandle):
 
 class Interface(SFTPServerInterface):
     RAIZ = ""
+    RENOMEAR_ATOMICO = True
 
     def _real(self, caminho):
         return os.path.join(self.RAIZ, caminho.lstrip("/").replace("/", os.sep))
@@ -72,7 +73,11 @@ class Interface(SFTPServerInterface):
         except OSError as e:
             return SFTPServer.convert_errno(e.errno)
 
-    lstat = stat
+    def lstat(self, path):
+        try:
+            return SFTPAttributes.from_stat(os.lstat(self._real(path)))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
 
     def open(self, path, flags, attr):
         real = self._real(path)
@@ -103,8 +108,20 @@ class Interface(SFTPServerInterface):
         return SFTP_OK
 
     def rename(self, oldpath, newpath):
+        # O rename SFTP padrao deve recusar um destino existente em qualquer SO.
+        if os.path.lexists(self._real(newpath)):
+            return paramiko.SFTP_FAILURE
         try:
             os.rename(self._real(oldpath), self._real(newpath))
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
+        return SFTP_OK
+
+    def posix_rename(self, oldpath, newpath):
+        if not self.RENOMEAR_ATOMICO:
+            return paramiko.SFTP_OP_UNSUPPORTED
+        try:
+            os.replace(self._real(oldpath), self._real(newpath))
         except OSError as e:
             return SFTPServer.convert_errno(e.errno)
         return SFTP_OK
@@ -124,18 +141,24 @@ class Interface(SFTPServerInterface):
         return SFTP_OK
 
     def chattr(self, path, attr):
+        try:
+            SFTPServer.set_file_attr(self._real(path), attr)
+        except OSError as e:
+            return SFTPServer.convert_errno(e.errno)
         return SFTP_OK
 
     def canonicalize(self, path):
         return "/" + os.path.normpath(path).replace("\\", "/").lstrip("/")
 
 
-def subir(raiz: str, com_sftp: bool = True) -> int:
+def subir(raiz: str, com_sftp: bool = True, renomear_atomico: bool = True) -> int:
     """Sobe o servidor numa porta livre e devolve a porta.
 
     Sem SFTP ele aceita o login e recusa o subsistema, como servidor que so da shell.
     """
-    Interface.RAIZ = raiz
+    interface = type("InterfaceLocal", (Interface,), {
+        "RAIZ": raiz, "RENOMEAR_ATOMICO": renomear_atomico,
+    })
     chave = paramiko.RSAKey.generate(2048)
 
     tomada = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -153,7 +176,7 @@ def subir(raiz: str, com_sftp: bool = True) -> int:
             transporte = paramiko.Transport(canal)
             transporte.add_server_key(chave)
             if com_sftp:
-                transporte.set_subsystem_handler("sftp", SFTPServer, Interface)
+                transporte.set_subsystem_handler("sftp", SFTPServer, interface)
             try:
                 transporte.start_server(server=Servidor())
             except Exception:

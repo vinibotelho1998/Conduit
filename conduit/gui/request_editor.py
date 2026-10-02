@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import parse_qsl, quote_plus
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QKeySequence, QShortcut, QTextCursor
@@ -133,6 +134,7 @@ class RequestEditor(QWidget):
 
         self.method = QComboBox()
         self.method.setObjectName("metodo")
+        self.method.setAccessibleName("Metodo HTTP")
         self.method.addItems(METHODS)
         # cada opcao da lista ja aparece na cor do proprio metodo, e na do tema de agora
         for indice in range(len(METHODS)):
@@ -148,6 +150,7 @@ class RequestEditor(QWidget):
 
         self.url = UrlEdit(request.get("url") or "")
         self.url.setObjectName("url")
+        self.url.setAccessibleName("URL do request")
         self.url.setPlaceholderText("https://exemplo.com/caminho")
         self.url.setFont(mono(9))
         self.url.textChanged.connect(self._on_url)
@@ -234,6 +237,7 @@ class RequestEditor(QWidget):
         self.code_btn.setIconSize(QSize(18, 18))
         self.code_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.code_btn.setToolTip("Gerar o codigo deste request.  Ctrl+G")
+        self.code_btn.setAccessibleName("Gerar codigo do request")
         theme.ao_trocar_widget(self.code_btn, lambda b: b.setIcon(icons.icone_codigo()))
         self.code_btn.clicked.connect(self.codigo_pedido.emit)
 
@@ -338,6 +342,7 @@ class RequestEditor(QWidget):
         layout.addLayout(modes)
 
         self.body = EditorNumerado()
+        self.body.setAccessibleName("Corpo do request")
         self.body.setPlainText(body.get("raw") or "")
         self.body.setFont(mono(9))
         self.body.setPlaceholderText("corpo da requisicao")
@@ -559,20 +564,25 @@ class RequestEditor(QWidget):
     # montar a query, entao nunca sai duplicado.
 
     @staticmethod
-    def _quebrar(url: str) -> tuple[str, str]:
-        base, _, query = url.partition("?")
-        return base, query
+    def _quebrar(url: str) -> tuple[str, str, str]:
+        endereco, marca, fragmento = url.partition("#")
+        base, _, query = endereco.partition("?")
+        return base, query, marca + fragmento
+
+    @staticmethod
+    def _codificar_parametro(valor) -> str:
+        """Escapa delimitadores sem esconder {{variaveis}} do editor."""
+        texto = "" if valor is None else str(valor)
+        partes = re.split(r"(\{\{\s*[\w.$-]+\s*\}\})", texto)
+        return "".join(p if VAR_NAMES.fullmatch(p) else quote_plus(p) for p in partes)
 
     def _url_para_params(self) -> None:
         if self._syncing or self._loading:
             return
-        _, query = self._quebrar(self.request.get("url") or "")
+        _, query, _ = self._quebrar(self.request.get("url") or "")
 
         novos = []
-        for pedaco in query.split("&"):
-            if not pedaco:
-                continue
-            chave, _, valor = pedaco.partition("=")
+        for chave, valor in parse_qsl(query, keep_blank_values=True):
             if not chave:
                 continue
             novos.append({"key": chave, "value": valor, "enabled": True})
@@ -594,13 +604,13 @@ class RequestEditor(QWidget):
     def _params_para_url(self) -> None:
         if self._syncing or self._loading:
             return
-        base, _ = self._quebrar(self.request.get("url") or "")
+        base, _, fragmento = self._quebrar(self.request.get("url") or "")
         pares = [
-            f"{p.get('key')}={p.get('value') or ''}"
+            f"{self._codificar_parametro(p.get('key'))}={self._codificar_parametro(p.get('value'))}"
             for p in self.request.get("params") or []
             if p.get("enabled") is not False and p.get("key")
         ]
-        nova = base + ("?" + "&".join(pares) if pares else "")
+        nova = base + ("?" + "&".join(pares) if pares else "") + fragmento
         if nova == self.request.get("url"):
             return
 
@@ -609,13 +619,13 @@ class RequestEditor(QWidget):
         posicao = self.url.textCursor().position()
         self.url.setPlainText(nova)
         cursor = self.url.textCursor()
-        cursor.setPosition(min(posicao, len(nova)))
+        cursor.setPosition(min(posicao, self.url.document().characterCount() - 1))
         self.url.setTextCursor(cursor)
         self._syncing = False
 
     def _normalizar_query(self) -> None:
         """Na abertura, faz os dois lados baterem sem inventar mudanca."""
-        _, query = self._quebrar(self.request.get("url") or "")
+        _, query, _ = self._quebrar(self.request.get("url") or "")
         tem_params = bool([p for p in self.request.get("params") or [] if p.get("key")])
         if query:
             self._url_para_params()

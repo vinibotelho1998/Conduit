@@ -7,7 +7,9 @@ prompt de IA usam esse ledger pra desresolver o segredo antes de gravar.
 
 from __future__ import annotations
 
+import json
 import re
+from urllib.parse import quote, quote_plus
 from dataclasses import dataclass, field
 
 from . import dinamicas
@@ -73,8 +75,21 @@ def redact(text: str, secrets: list[tuple[str, str]]) -> str:
     O mais comprido vai primeiro. Na ordem do ledger, uma senha `abc` trocada antes de um
     token `abc123xyz` partia o token ao meio, e o resto dele ia pro historico em claro.
     """
-    out = text
+    trocas: dict[str, str] = {}
     for name, value in sorted(secrets or [], key=lambda par: len(par[1] or ""), reverse=True):
         if value:
-            out = out.replace(value, "{{%s}}" % name)
-    return out
+            # A query e codificada pelo cliente HTTP; JSON pode escapar aspas e
+            # Unicode. So procurar o literal deixava essas formas no historico.
+            variantes = {
+                value, quote(value, safe=""), quote_plus(value, safe=""),
+                json.dumps(value, ensure_ascii=False)[1:-1],
+                json.dumps(value, ensure_ascii=True)[1:-1],
+            }
+            for variante in variantes:
+                trocas.setdefault(variante, "{{%s}}" % name)
+    if not trocas or not text:
+        return text
+    padrao = "|".join(re.escape(valor) for valor in sorted(trocas, key=len, reverse=True))
+    # Uma passagem so: um segredo curto nao pode modificar o nome do placeholder
+    # que acabou de substituir outro segredo.
+    return re.sub(padrao, lambda trecho: trocas[trecho.group(0)], text)

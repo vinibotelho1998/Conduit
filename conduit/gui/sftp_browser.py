@@ -84,7 +84,9 @@ class _Sinais(QObject):
     # a excecao inteira, pra quem precisa do que vem dentro dela: a impressao digital
     # de uma chave desconhecida, por exemplo, nao cabe numa mensagem de texto
     estourou = Signal(object)
-    andou = Signal(int, int)
+    # int do Qt tem 32 bits: arquivos acima de 2 GiB estouravam no callback e
+    # interrompiam uma transferencia saudavel. object preserva o inteiro Python.
+    andou = Signal(object, object)
 
 
 class Tarefa(QRunnable):
@@ -169,6 +171,8 @@ class SftpBrowser(QWidget):
         self._tarefas: set = set()
         self._historico: list[str] = []
         self._ocupado = False
+        self._encerrado = False
+        self._em_transferencia = False
 
         raiz = QVBoxLayout(self)
         raiz.setContentsMargins(12, 10, 12, 0)
@@ -376,13 +380,13 @@ class SftpBrowser(QWidget):
             self.ir_para(sftp.pai(self.caminho))
 
     def recarregar(self) -> None:
-        if self._ocupado:
+        if self._ocupado or self._encerrado:
             return
         self._marcar_ocupado(True, f"lendo {self.caminho}")
         self._rodar(
             self.conexao.listar,
             self.caminho,
-            self.ocultos,
+            True,
             ao_pronto=self._mostrar,
             ao_falhar=self._falha_ao_listar,
         )
@@ -393,6 +397,7 @@ class SftpBrowser(QWidget):
         # sem isso a tela fica mostrando o conteudo da pasta anterior com a barra de
         # caminho apontando pra pasta que falhou, que e a pior das duas informacoes
         self.tabela.setRowCount(0)
+        self._nomes = {}
         # a trilha vai pra pasta que falhou e o motivo sai na cor de erro: com a trilha
         # na pasta anterior e o texto cinza, parecia que a pasta anterior estava vazia
         self._pintar_trilha()
@@ -402,12 +407,15 @@ class SftpBrowser(QWidget):
     def _mostrar(self, entradas: list) -> None:
         self._marcar_ocupado(False)
         self._pintar_trilha()
+        # Arquivos ocultos tambem precisam participar da conferencia de substituicao.
+        self._nomes = {entrada.nome: entrada for entrada in entradas}
+        if not self.ocultos:
+            entradas = [entrada for entrada in entradas if not entrada.nome.startswith(".")]
         # a ordenacao fica desligada enquanto a tabela enche, senao cada linha nova
         # trocava de lugar no meio do preenchimento
         self.tabela.setSortingEnabled(False)
         self.tabela.setRowCount(len(entradas))
         altura = theme.medida("linha_tabela")
-        self._nomes = {entrada.nome: entrada for entrada in entradas}
 
         for indice, entrada in enumerate(entradas):
             grupo = 0 if entrada.pasta else 1
@@ -503,6 +511,8 @@ class SftpBrowser(QWidget):
         escolhidas = self._selecionadas()
         arquivos = [e for e in escolhidas if not e.pasta]
         self.btn_baixar.setEnabled(bool(arquivos))
+        if self._em_transferencia:
+            return
         if len(escolhidas) > 1:
             total = sum(e.tamanho for e in arquivos)
             marca = sftp.Entrada(nome="", caminho="", tamanho=total).tamanho_legivel()
@@ -529,6 +539,8 @@ class SftpBrowser(QWidget):
             self.espiar(entrada)
 
     def espiar(self, entrada) -> None:
+        if not self._pode_agir():
+            return
         if Path(entrada.nome).suffix.lower() not in TEXTO and entrada.tamanho > sftp.LIMITE_ESPIADA:
             self.recado.emit(
                 f"{entrada.nome} e grande demais pra previa, use Baixar", 6000
@@ -561,6 +573,8 @@ class SftpBrowser(QWidget):
         self.espiada_nome.setText("")
 
     def baixar(self) -> None:
+        if not self._pode_agir():
+            return
         escolhidas = [e for e in self._selecionadas() if not e.pasta]
         if not escolhidas:
             self.recado.emit("escolha um arquivo pra baixar. Pasta ainda nao desce inteira", 5000)
@@ -580,7 +594,8 @@ class SftpBrowser(QWidget):
             if not pasta:
                 return
             # o nome vem do servidor, e em lote ninguem ve o caminho antes de gravar
-            alvos = [(e, sftp.destino_local(pasta, e.nome)) for e in escolhidas]
+            destinos = sftp.destinos_locais(pasta, [e.nome for e in escolhidas])
+            alvos = list(zip(escolhidas, destinos))
             # arquivo local de mesmo nome era trocado calado pelo que desceu
             repetidos = [local.name for _, local in alvos if local.exists()]
             if repetidos:
@@ -595,6 +610,8 @@ class SftpBrowser(QWidget):
         self._fila_transferencia(alvos, enviando=False)
 
     def enviar(self) -> None:
+        if not self._pode_agir():
+            return
         arquivos, _ = QFileDialog.getOpenFileNames(
             self, "Escolher o que enviar", str(Path.home())
         )
@@ -648,14 +665,20 @@ class SftpBrowser(QWidget):
 
     def _fila_transferencia(self, alvos: list, enviando: bool) -> None:
         """Uma transferencia por vez, na ordem. O canal SFTP e um so."""
+        if not self._pode_agir() or not alvos:
+            return
         fila = list(alvos)
 
         def proximo() -> None:
+            if self._encerrado:
+                fila.clear()
+                return
             if not fila:
+                self._em_transferencia = False
                 self.barra.hide()
                 self.transferindo.setText("")
                 self._marcar_ocupado(False)
-                if enviando:
+                if enviando and self.conexao.aberta:
                     self.recarregar()
                 return
 
@@ -672,43 +695,54 @@ class SftpBrowser(QWidget):
                 progresso=lambda feito, total: tarefa.sinais.andou.emit(feito, total),
             )
             tarefa.sinais.andou.connect(self._andar)
-            tarefa.sinais.pronto.connect(
-                lambda _=None, e=entrada: (
-                    self.recado.emit(f"{e.nome} {'enviado' if enviando else 'salvo'}", 4000),
-                    proximo(),
-                )
-            )
-            tarefa.sinais.falhou.connect(
-                lambda msg: (self.recado.emit(msg, 9000), proximo())
-            )
+            def terminou(_=None, e=entrada) -> None:
+                if not self._encerrado:
+                    self.recado.emit(f"{e.nome} {'enviado' if enviando else 'salvo'}", 4000)
+                    proximo()
+
+            def falhou(mensagem: str) -> None:
+                if not self._encerrado:
+                    self.recado.emit(mensagem, 9000)
+                    if not self.conexao.aberta:
+                        fila.clear()
+                    proximo()
+
+            tarefa.sinais.pronto.connect(terminou)
+            tarefa.sinais.falhou.connect(falhou)
             tarefa.sinais.falhou.connect(self._conferir_sessao)
             self._guardar(tarefa)
             self.pool.start(tarefa)
 
+        self._em_transferencia = True
         self._marcar_ocupado(True, "transferindo")
         proximo()
 
     def _andar(self, feito: int, total: int) -> None:
-        if total <= 0:
+        if total <= 0 or self._encerrado:
             return
-        self.barra.setValue(int(feito * 100 / total))
+        self.barra.setValue(max(0, min(100, feito * 100 // total)))
 
     def nova_pasta(self) -> None:
+        if not self._pode_agir():
+            return
         nome, ok = QInputDialog.getText(self, "Nova pasta", f"Nome da pasta em {self.caminho}")
         nome = (nome or "").strip()
         if not ok or not nome:
             return
-        if "/" in nome:
-            self.recado.emit("o nome da pasta nao pode ter barra", 5000)
+        if "/" in nome or nome in (".", "..") or "\0" in nome:
+            self.recado.emit("use um nome de pasta valido, sem barra, ponto isolado ou dois pontos isolados", 5000)
             return
+        self._marcar_ocupado(True, "criando pasta")
         self._rodar(
             self.conexao.criar_pasta,
             sftp.juntar(self.caminho, nome),
-            ao_pronto=lambda _: (self.recado.emit(f"pasta {nome} criada", 4000), self.recarregar()),
+            ao_pronto=lambda _: self._alteracao_concluida(f"pasta {nome} criada"),
             ao_falhar=self._erro_simples,
         )
 
     def renomear(self) -> None:
+        if not self._pode_agir():
+            return
         escolhidas = self._selecionadas()
         if len(escolhidas) != 1:
             self.recado.emit("escolha um item pra renomear", 4000)
@@ -718,8 +752,8 @@ class SftpBrowser(QWidget):
         nome = (nome or "").strip()
         if not ok or not nome or nome == alvo.nome:
             return
-        if "/" in nome:
-            self.recado.emit("o nome nao pode ter barra", 5000)
+        if "/" in nome or nome in (".", "..") or "\0" in nome:
+            self.recado.emit("use um nome valido, sem barra, ponto isolado ou dois pontos isolados", 5000)
             return
         # o rename do servidor troca o destino de forma atomica: o b.txt que ja estava
         # la sumia sem aviso nenhum
@@ -736,15 +770,18 @@ class SftpBrowser(QWidget):
                 return
         # o destino e a pasta do proprio item, e nao a da tela: com as duas diferentes, o
         # arquivo ia parar em outra pasta em vez de trocar de nome
+        self._marcar_ocupado(True, "renomeando")
         self._rodar(
             self.conexao.renomear,
             alvo.caminho,
             sftp.juntar(sftp.pai(alvo.caminho), nome),
-            ao_pronto=lambda _: (self.recado.emit(f"virou {nome}", 4000), self.recarregar()),
+            ao_pronto=lambda _: self._alteracao_concluida(f"virou {nome}"),
             ao_falhar=self._erro_simples,
         )
 
     def excluir(self) -> None:
+        if not self._pode_agir():
+            return
         escolhidas = self._selecionadas()
         if not escolhidas:
             return
@@ -771,7 +808,10 @@ class SftpBrowser(QWidget):
         falhas: list[str] = []
 
         def proximo() -> None:
+            if self._encerrado:
+                return
             if not restantes:
+                self._marcar_ocupado(False)
                 if falhas:
                     self.recado.emit("   ".join(falhas[:3]), 9000)
                 else:
@@ -786,6 +826,7 @@ class SftpBrowser(QWidget):
                 ao_falhar=lambda msg: (falhas.append(msg), proximo()),
             )
 
+        self._marcar_ocupado(True, "apagando")
         proximo()
 
     def copiar_caminho(self) -> None:
@@ -820,6 +861,19 @@ class SftpBrowser(QWidget):
 
     # ------------------------------------------------------------------------ encanamento
 
+    def _pode_agir(self) -> bool:
+        if self._encerrado:
+            return False
+        if self._ocupado:
+            self.recado.emit(f"espere terminar: {self.estado.text()}", 5000)
+            return False
+        return True
+
+    def _alteracao_concluida(self, mensagem: str) -> None:
+        self._marcar_ocupado(False)
+        self.recado.emit(mensagem, 4000)
+        self.recarregar()
+
     def _marcar_ocupado(self, ocupado: bool, texto: str = "") -> None:
         self._ocupado = ocupado
         self.estado.setText(texto or ("trabalhando" if ocupado else "conectado"))
@@ -840,7 +894,7 @@ class SftpBrowser(QWidget):
         Suspender o notebook ou o servidor derrubar a conexao deixava a aba dizendo
         conectado em verde, e toda acao falhava com Socket is closed.
         """
-        if self.conexao.aberta:
+        if self._encerrado or self.conexao.aberta:
             return
         self.estado.setText("desconectado")
         theme.estilizar(
@@ -856,14 +910,24 @@ class SftpBrowser(QWidget):
             sinal.connect(lambda *_, t=tarefa: self._tarefas.discard(t))
 
     def _rodar(self, funcao, *args, ao_pronto=None, ao_falhar=None, **kwargs) -> None:
+        if self._encerrado:
+            return
         tarefa = Tarefa(funcao, *args, **kwargs)
         if ao_pronto is not None:
-            tarefa.sinais.pronto.connect(ao_pronto)
-        tarefa.sinais.falhou.connect(ao_falhar or self._erro_simples)
+            tarefa.sinais.pronto.connect(
+                lambda resultado: ao_pronto(resultado) if not self._encerrado else None
+            )
+        tarefa.sinais.falhou.connect(
+            lambda mensagem: (ao_falhar or self._erro_simples)(mensagem)
+            if not self._encerrado else None
+        )
         tarefa.sinais.falhou.connect(self._conferir_sessao)
         self._guardar(tarefa)
         self.pool.start(tarefa)
 
     def encerrar(self) -> None:
+        if self._encerrado:
+            return
+        self._encerrado = True
         self.conexao.fechar()
         self.fechou.emit()

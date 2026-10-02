@@ -11,6 +11,19 @@ existe telemetria.
 
 ![Interface do Conduit](docs/screenshot.png)
 
+<details>
+<summary>Ver o tema claro</summary>
+
+![Conduit no tema claro](docs/screenshot-light.png)
+
+</details>
+
+Capturas com dados de exemplo, sem executar requisições externas.
+
+O projeto mantém os dados no seu computador, protege credenciais no cofre local e
+executa HTTP e SFTP fora da thread da interface. Temas claro e escuro, busca no corpo
+da resposta e atalhos de teclado ajudam a trabalhar sem interromper o fluxo.
+
 ## Instalação
 
 Baixe o **Conduit-Setup.exe** da [última release](https://github.com/vinibotelho1998/Conduit/releases/latest),
@@ -32,10 +45,46 @@ python -m venv .venv
 .venv\Scripts\python tests\rodar.py
 ```
 
-Sem framework. A primeira suite confere o nucleo funcao por funcao, sem janela, em poucos
-segundos. As outras sobem a janela de verdade num Qt sem tela e conversam com um servidor
-SFTP de verdade, aberto numa porta livre da propria maquina. Todas rodam no CI antes de
-gerar o instalador.
+As suítes usam servidores HTTP e SFTP locais e uma interface Qt sem tela. Cada processo
+recebe um workspace temporário exclusivo, sem tocar nos seus dados. O runner mostra o
+progresso e encerra uma suíte que exceda o limite de 300 segundos.
+
+Para executar apenas uma área ou ajustar o limite:
+
+```powershell
+.venv\Scripts\python tests\rodar.py --list
+.venv\Scripts\python tests\rodar.py nucleo refinamento
+.venv\Scripts\python tests\rodar.py interface uso --timeout 600
+```
+
+Para desenvolver e gerar o executável, instale as ferramentas fixadas e confira a
+análise estática antes dos testes:
+
+```powershell
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pyflakes conduit tests packaging\launcher.py
+.venv\Scripts\python -m PyInstaller packaging\Conduit.spec --noconfirm --distpath dist --workpath build
+```
+
+O instalador é compilado com o Inno Setup a partir de `packaging\Conduit_Setup.iss`.
+Ao compilar manualmente, sua versão é lida do executável. Pull requests são verificados
+no Windows com Python 3.13 e 3.14. O fluxo de release compila e testa antes de registrar
+a versão, mantém as releases anteriores e publica um arquivo `SHA256SUMS.txt` junto ao
+instalador.
+
+## Atalhos úteis
+
+| Atalho | Ação |
+|---|---|
+| Ctrl+Enter | Enviar o request aberto |
+| Ctrl+S | Salvar o request |
+| Ctrl+P | Procurar e abrir um request |
+| Ctrl+L | Focar a URL ou o caminho na aba SFTP |
+| Ctrl+G | Gerar código do request |
+| Ctrl+Shift+C | Copiar como curl |
+| Ctrl+F | Buscar no corpo da resposta |
+| F3 / Shift+F3 | Próxima / anterior ocorrência |
+| Esc, no campo de busca | Fechar a busca |
 
 ## O que ele faz
 
@@ -56,6 +105,9 @@ gerar o instalador.
   com previa de arquivo de texto sem precisar baixar. A chave do servidor e conferida
   contra o `known_hosts` do workspace, e servidor novo mostra a impressao digital antes
   de voce confiar
+- **Transferências protegidas**: downloads usam arquivos temporários exclusivos;
+  uploads só recebem o nome final depois de concluir e confirmar o tamanho. O conteúdo
+  anterior é preservado se a transferência falhar
 - **Console** com a fita do que o app fez na sessao
 - **Tema claro e escuro** e duas densidades, trocados na hora pelo menu Ver
 
@@ -80,6 +132,18 @@ O mesmo cuidado vale pra tudo que sai do app: historico, exemplo salvo, codigo g
 curl copiado trocam o valor do segredo de volta por `{{nome}}` antes de gravar ou
 copiar. A troca e pelo valor e nao pelo nome do header, porque nem todo segredo viaja
 num header conhecido, e o basic ainda embaralha usuario e senha em base64.
+
+O histórico também remove os valores secretos em URLs codificadas, strings JSON,
+mensagens de erro e campos de rastreio. Ao girar uma credencial OAuth2, o cache do token
+é invalidado. Configure o endereço final do provedor em `tokenUrl`: redirects não são
+seguidos na obtenção do token, para evitar o reenvio da credencial a outro endereço.
+
+Para substituir arquivos existentes via SFTP, o servidor precisa aceitar renomeação
+atômica (`posix-rename`) e ajuste de permissões. Uploads sobre links simbólicos são
+recusados para preservar o link e seu alvo. Servidores sem essa extensão aceitam uploads de
+arquivos novos; uma substituição recusada preserva o arquivo anterior e mostra o motivo.
+Um corte de conexão pode deixar um arquivo remoto oculto `.conduit-*.parcial`, que pode
+ser removido depois de conferir que não há transferência em andamento.
 
 ## Estrutura
 

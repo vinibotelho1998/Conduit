@@ -678,6 +678,149 @@ def main() -> int:
         return not janela.response.btn_copiar.isEnabled() and not janela.response.btn_exemplo.isEnabled()
 
     caso("sem resposta, copiar e guardar exemplo ficam apagados", sem_resposta)
+
+    p.secao("resposta atual e busca pelo teclado")
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QTableWidget, QTextBrowser
+
+    def resposta_para_buscar():
+        janela.activateWindow()
+        janela.response.setVisible(True)
+        janela.response.show_response({
+            "ok": True, "status": 200, "reason": "OK", "body": "um ALVO dois alvo tres",
+            "headers": [["content-type", "text/html"], ["server", "servidor-anterior"],
+                        ["set-cookie", "sessao=anterior; Path=/"]],
+            "url": "https://anterior.exemplo", "elapsedMs": 1,
+        }, {"method": "GET", "url": "https://anterior.exemplo"})
+        app.processEvents()
+
+    def envio_sem_conteudo_antigo():
+        resposta_para_buscar()
+        painel = janela.response
+        painel.tabs.setCurrentIndex(1)
+        painel._abrir_busca()
+        painel.raw.busca.setText("alvo")
+        painel.show_pending("https://novo.exemplo")
+        caixas = (painel.preview_box, painel.headers_box, painel.cookies_box, painel.enviado_box)
+        return (
+            painel._dados is None and painel.exibido is None
+            and not painel.raw.edit.toPlainText() and not painel.pretty.edit.toPlainText()
+            and not painel.btn_busca.isChecked() and not painel.metricas.toolTip()
+            and painel._raw_pendente is None and painel.tabs.currentWidget() is painel.pretty
+            and all(not isinstance(c.layout().itemAt(0).widget(), (QTableWidget, QTextBrowser))
+                    for c in caixas)
+            and not painel.btn_copiar.isEnabled() and not painel.tabs.isTabEnabled(2)
+            and painel.espera._timer.isActive()
+        )
+
+    caso("novo envio limpa Raw, headers, cookies, previa e busca da resposta anterior",
+         envio_sem_conteudo_antigo)
+
+    def busca_so_com_resposta():
+        painel = janela.response
+        painel._abrir_busca()
+        return not painel.btn_busca.isChecked() and painel.pretty.barra_busca.isHidden()
+
+    caso("Ctrl+F durante a espera nao abre busca vazia", busca_so_com_resposta)
+
+    def buscar_a_partir_dos_headers():
+        resposta_para_buscar()
+        painel = janela.response
+        painel.tabs.setCurrentIndex(3)
+        painel._abrir_busca()
+        app.processEvents()
+        return (painel.tabs.currentWidget() is painel.pretty
+                and painel.pretty.busca.hasFocus() and painel.btn_busca.isChecked()), (
+                    painel.tabs.currentIndex(), painel.pretty.busca.hasFocus(),
+                    painel.btn_busca.isChecked(), janela.isActiveWindow())
+
+    caso("buscar a partir de Headers leva ao corpo e foca o campo", buscar_a_partir_dos_headers)
+
+    def refocar_busca_aberta():
+        painel = janela.response
+        painel.pretty.busca.setText("alvo")
+        painel.pretty.edit.setFocus()
+        QTest.keyClick(painel.pretty.edit, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+        app.processEvents()
+        return painel.pretty.busca.hasFocus() and painel.pretty.busca.selectedText() == "alvo"
+
+    caso("Ctrl+F repetido refoca e seleciona a busca aberta", refocar_busca_aberta)
+
+    def navegar_ocorrencias():
+        corpo = janela.response.pretty
+        primeira = corpo.edit.textCursor().selectedText() == "ALVO" and corpo.contador.text() == "1 de 2"
+        QTest.keyClick(corpo.busca, Qt.Key.Key_F3)
+        segunda = corpo.edit.textCursor().selectedText() == "alvo" and corpo.contador.text() == "2 de 2"
+        QTest.keyClick(corpo.busca, Qt.Key.Key_F3, Qt.KeyboardModifier.ShiftModifier)
+        return primeira and segunda and corpo.contador.text() == "1 de 2"
+
+    caso("F3 e Shift+F3 selecionam a ocorrencia atual e navegam nos dois sentidos", navegar_ocorrencias)
+
+    def fechar_busca_com_escape():
+        painel = janela.response
+        QTest.keyClick(painel.pretty.busca, Qt.Key.Key_Escape)
+        app.processEvents()
+        fechou = (not painel.btn_busca.isChecked() and painel.pretty.barra_busca.isHidden()
+                  and painel.raw.barra_busca.isHidden() and painel.pretty.edit.hasFocus())
+        painel.btn_busca.click()
+        return fechou and not painel.pretty.barra_busca.isHidden()
+
+    caso("Esc fecha as duas buscas e a lupa reabre com um clique", fechar_busca_com_escape)
+
+    def busca_sem_ocorrencias():
+        corpo = janela.response.pretty
+        corpo.busca.setText("inexistente")
+        return (corpo.contador.text() == "Nenhuma ocorrencia"
+                and not corpo.anterior.isEnabled() and not corpo.proximo.isEnabled())
+
+    caso("busca sem resultado explica e desliga as setas", busca_sem_ocorrencias)
+
+    def metricas_sem_resto():
+        janela.response.show_response({"ok": True, "status": 204, "reason": "No Content", "headers": []})
+        return janela.response.metricas.toolTip() == ""
+
+    caso("nova resposta nao herda o tooltip de servidor anterior", metricas_sem_resto)
+
+    p.secao("query do editor preserva o significado da URL")
+    from conduit.gui.request_editor import RequestEditor
+    from urllib.parse import parse_qsl, urlsplit
+
+    def query_sem_duplo_escape():
+        editor_query = RequestEditor({
+            "url": "https://api.exemplo/busca?q=a%2Bb&cidade=S%C3%A3o+Paulo&tag=um&tag=dois&vazio=#parte?local",
+        })
+        try:
+            pares = [(item["key"], item["value"]) for item in editor_query.request["params"]]
+            preparado = engine.prepare(editor_query.request, {}, rede=False)
+            return (pares == [("q", "a+b"), ("cidade", "São Paulo"),
+                              ("tag", "um"), ("tag", "dois"), ("vazio", "")]
+                    and parse_qsl(urlsplit(preparado.url).query, keep_blank_values=True) == pares
+                    and urlsplit(preparado.url).fragment == "parte?local"), preparado.url
+        finally:
+            editor_query.deleteLater()
+
+    caso("URL colada decodifica valores, preserva repetidos e nao envia o fragmento como valor",
+         query_sem_duplo_escape)
+
+    def editar_query_com_delimitadores():
+        editor_query = RequestEditor({"url": "https://api.exemplo/busca#resultado", "params": []})
+        try:
+            editor_query.request["params"][:] = [
+                {"key": "filtro", "value": "a&b=c+#d", "enabled": True},
+                {"key": "base", "value": "{{ token }}", "enabled": True},
+            ]
+            editor_query._params_para_url()
+            url = editor_query.url.text()
+            editor_query._url_para_params()
+            return (url == "https://api.exemplo/busca?filtro=a%26b%3Dc%2B%23d&base={{ token }}#resultado"
+                    and editor_query.request["params"][0]["value"] == "a&b=c+#d"
+                    and editor_query.request["params"][1]["value"] == "{{ token }}"), url
+        finally:
+            editor_query.deleteLater()
+
+    caso("editar Params escapa delimitadores, mantem variavel legivel e fragmento no final",
+         editar_query_com_delimitadores)
+
     caso("sem aba aberta o painel de resposta sai",
          lambda: (fechar_abas() or not janela.response.isVisible(), janela.response.isVisible()))
 

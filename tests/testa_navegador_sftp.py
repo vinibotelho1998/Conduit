@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 from comum import Placar, casa_limpa, girar, sem_tela  # noqa: E402
@@ -33,6 +34,7 @@ def main() -> int:
     (raiz / "entrada").mkdir()
     (raiz / "entrada" / "lote.csv").write_text("a;b\n1;2\n", encoding="utf-8")
     (raiz / "leiame.txt").write_text("primeira linha\nsegunda linha\n", encoding="utf-8")
+    (raiz / ".privado").write_text("ja existe no servidor", encoding="utf-8")
     porta = servidor_falso.subir(str(raiz))
 
     app = QApplication([])
@@ -98,6 +100,8 @@ def main() -> int:
     p.confere("listou a raiz", set(nomes) >= {"entrada", "leiame.txt"}, str(nomes))
     p.confere("pasta primeiro", nomes and nomes[0] == "entrada", str(nomes))
     p.confere("coluna de permissoes preenchida", bool(navegador.tabela.item(0, 3).text()))
+    p.confere("oculto nao aparece na tabela", ".privado" not in nomes)
+    p.confere("oculto participa da conferencia de substituicao", ".privado" in navegador._nomes)
     p.confere("resumo conta o que tem, no singular quando e uma", "1 pasta" in navegador.resumo.text()
               and "1 pastas" not in navegador.resumo.text(), navegador.resumo.text())
 
@@ -112,6 +116,7 @@ def main() -> int:
     navegador.ir_para("/nao-existe")
     girar(app)
     p.confere("pasta invalida esvazia a tabela", navegador.tabela.rowCount() == 0)
+    p.confere("pasta invalida limpa nomes da pasta anterior", not navegador._nomes)
     p.confere("e explica no rodape", "nao existe" in navegador.resumo.text(), navegador.resumo.text())
     navegador.ir_para("/")
     girar(app)
@@ -145,6 +150,51 @@ def main() -> int:
     girar(app, 5)
     p.confere("estado repintou", navegador.estado.styleSheet() != antes, navegador.estado.styleSheet())
     theme.aplicar(app, "escuro")
+
+    p.secao("progresso de arquivos grandes")
+    from conduit.gui.sftp_browser import SftpBrowser, Tarefa
+
+    tarefa = Tarefa(lambda: None)
+    tarefa.sinais.andou.connect(navegador._andar)
+    tarefa.sinais.andou.emit(3 * 1024 ** 3, 4 * 1024 ** 3)
+    app.processEvents()
+    p.confere("progresso acima de 2 GiB preserva os bytes", navegador.barra.value() == 75)
+
+    p.secao("encerrar uma fila em andamento")
+    iniciou, liberar = threading.Event(), threading.Event()
+    chamadas, recados = [], []
+
+    class ConexaoControlada:
+        # Dublê apenas para controlar a ordem dos sinais de encerramento. Os testes
+        # acima exercitam a navegacao com o protocolo e os arquivos reais.
+        perfil = sftp.Perfil(host="teste", usuario="teste")
+        digital = ""
+        aberta = True
+
+        def baixar(self, remoto, local, progresso=None):
+            chamadas.append(remoto)
+            iniciou.set()
+            liberar.wait(5)
+            progresso(3 * 1024 ** 3, 4 * 1024 ** 3)
+            return Path(local)
+
+        def fechar(self):
+            self.aberta = False
+            liberar.set()
+
+    controlada = SftpBrowser(ConexaoControlada())
+    controlada.recado.connect(lambda *args: recados.append(args))
+    alvos = [(sftp.Entrada(nome=f"{n}.txt", caminho=f"/{n}.txt"), raiz / f"{n}.txt") for n in (1, 2)]
+    controlada._fila_transferencia(alvos, enviando=False)
+    p.confere("primeira transferencia iniciou", iniciou.wait(2))
+    controlada._fila_transferencia(alvos, enviando=False)
+    p.confere("segunda fila nao corre junto com a primeira", len(controlada._tarefas) == 1)
+    controlada.encerrar()
+    recados.clear()
+    controlada.deleteLater()
+    girar(app, 10)
+    p.confere("encerramento nao dispara os arquivos seguintes", chamadas == ["/1.txt"], str(chamadas))
+    p.confere("resultado tardio nao notifica uma aba fechada", not recados, str(recados))
 
     p.secao("desconectar")
     janela.sftp_desconectar("gui1")

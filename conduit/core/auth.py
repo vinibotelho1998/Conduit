@@ -14,12 +14,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass, field
 
 import httpx
 
-from .vars import Resolved, resolve
+from .vars import Resolved, redact, resolve
 
 TIPOS = {
     "inherit": "Herdar",
@@ -102,6 +103,8 @@ def aplicar(config: dict, variaveis: dict, cofre=None, rede: bool = True) -> Aut
     elif tipo == "basic":
         usuario = _tomar(config.get("username"), variaveis, ledger)
         senha = _tomar(config.get("password"), variaveis, ledger)
+        if senha:
+            ledger.append(("auth.password", senha))
         par = f"{usuario}:{senha}".encode("utf-8")
         cifrado = base64.b64encode(par).decode("ascii")
         saida.headers["Authorization"] = "Basic " + cifrado
@@ -141,13 +144,17 @@ def aplicar(config: dict, variaveis: dict, cofre=None, rede: bool = True) -> Aut
     return saida
 
 
-def _assinatura(config: dict, url: str, client_id: str, escopo: str, audiencia: str = "") -> str:
+def _assinatura(
+    config: dict, url: str, client_id: str, escopo: str, audiencia: str = "", client_secret: str = ""
+) -> str:
     # A audience e o grant entram na chave: sem eles, trocar a audience reaproveitava o
     # token da anterior ate expirar, e a api respondia 401 por ate uma hora.
-    bruto = json.dumps(
-        [url, client_id, escopo, audiencia, config.get("grant") or "client_credentials"],
-        sort_keys=True,
-    )
+    campos = [url, client_id, escopo, audiencia, config.get("grant") or "client_credentials"]
+    # Rotacionar a credencial invalida o cache tambem. A chave do cofre nao guarda
+    # o segredo em claro, e a assinatura antiga sem segredo continua compativel.
+    if client_secret:
+        campos.append(hashlib.sha256(client_secret.encode("utf-8")).hexdigest())
+    bruto = json.dumps(campos, sort_keys=True)
     return "oauth:" + hashlib.sha256(bruto.encode("utf-8")).hexdigest()[:24]
 
 
@@ -157,23 +164,29 @@ def token_oauth2(
     url = _tomar(config.get("tokenUrl"), variaveis, ledger)
     client_id = _tomar(config.get("clientId"), variaveis, ledger)
     client_secret = _tomar(config.get("clientSecret"), variaveis, ledger)
+    if client_secret:
+        ledger.append(("auth.clientSecret", client_secret))
     escopo = _tomar(config.get("scope"), variaveis, ledger)
 
     if not url or not client_id:
         return "", "OAuth2 precisa de tokenUrl e clientId", ""
 
     audiencia = _tomar(config.get("audience"), variaveis, ledger) if config.get("audience") else ""
-    chave = _assinatura(config, url, client_id, escopo, audiencia)
+    chave = _assinatura(config, url, client_id, escopo, audiencia, client_secret)
 
     if cofre is not None:
         guardado = cofre.get(chave)
         if guardado:
             try:
                 dados = json.loads(guardado)
-                if dados.get("expira", 0) > time.time() + FOLGA_SEGUNDOS:
-                    faltam = int(dados["expira"] - time.time())
-                    return dados["token"], None, f"OAuth2 do cache, expira em {faltam}s"
-            except (json.JSONDecodeError, KeyError):
+                if isinstance(dados, dict):
+                    expira = float(dados.get("expira", 0))
+                    token = dados.get("token")
+                    if (isinstance(token, str) and token and math.isfinite(expira)
+                            and expira > time.time() + FOLGA_SEGUNDOS):
+                        faltam = int(expira - time.time())
+                        return token, None, f"OAuth2 do cache, expira em {faltam}s"
+            except (ValueError, TypeError, OverflowError):
                 pass
 
     if not rede:
@@ -188,13 +201,18 @@ def token_oauth2(
         corpo["audience"] = audiencia
 
     try:
-        with httpx.Client(timeout=30, follow_redirects=True) as cliente:
+        # Um 307/308 reenviaria o client_secret no corpo para outro endereco.
+        # O tokenUrl precisa ser o endpoint final escolhido pela pessoa.
+        with httpx.Client(timeout=30, follow_redirects=False) as cliente:
             resposta = cliente.post(url, data=corpo)
     except httpx.HTTPError as exc:
-        return "", f"falha ao pegar o token: {exc}", ""
+        return "", redact(f"falha ao pegar o token: {exc}", ledger), ""
+
+    if 300 <= resposta.status_code < 400:
+        return "", f"provedor redirecionou ({resposta.status_code}); use o endereco final em tokenUrl", ""
 
     if resposta.status_code >= 400:
-        return "", f"provedor devolveu {resposta.status_code}: {resposta.text[:200]}", ""
+        return "", f"provedor devolveu {resposta.status_code}: {redact(resposta.text, ledger)[:200]}", ""
 
     try:
         dados = resposta.json()
@@ -204,15 +222,15 @@ def token_oauth2(
         return "", "resposta do token nao e um objeto JSON", ""
 
     token = dados.get("access_token")
-    if not token:
+    if not isinstance(token, str) or not token.strip():
         return "", "resposta do token nao trouxe access_token", ""
 
     # provedor que manda "3600.0" ou texto no expires_in derrubava o envio com ValueError
     try:
-        vida = int(float(dados.get("expires_in") or 3600))
+        vida = int(float(dados.get("expires_in", 3600)))
     except (TypeError, ValueError, OverflowError):
         vida = 3600
-    if cofre is not None:
+    if cofre is not None and vida > 0:
         try:
             cofre.set(chave, json.dumps({"token": token, "expira": time.time() + vida}))
         except Exception:  # noqa: BLE001

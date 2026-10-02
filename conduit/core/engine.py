@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.cookiejar
+import math
 import re
 import time
 import urllib.parse
@@ -21,6 +22,13 @@ CONEXAO = 30.0
 
 # esquema no comeco da url, do jeito que a RFC escreve: letra, depois letra, digito, + . -
 _ESQUEMA = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+
+
+def _com_query(url: str, query: str) -> str:
+    """Troca so a query: o fragmento vem depois dela e nunca vai ao servidor."""
+    endereco, marca, fragmento = url.partition("#")
+    base = endereco.partition("?")[0]
+    return base + ("?" + query if query else "") + (marca + fragmento if marca else "")
 
 
 @dataclass
@@ -87,14 +95,13 @@ def prepare(
     for item in request.get("params") or []:
         if item.get("enabled") is False or not item.get("key"):
             continue
-        params.append((item["key"], take(item.get("value") or "")))
+        params.append((take(item["key"]), take(item.get("value") or "")))
 
     # A lista de params e a fonte da query. A url e so a outra vista do mesmo dado,
     # entao o que estiver depois do ? na url e descartado quando ha params. Sem isso
     # a query sairia duplicada assim que a interface sincroniza os dois lados.
-    if params:
-        base, _, _ = url.partition("?")
-        out.url = f"{base}?{httpx.QueryParams(params)}"
+    if params or request.get("params"):
+        out.url = _com_query(url, str(httpx.QueryParams(params)))
     else:
         out.url = url
 
@@ -119,6 +126,8 @@ def prepare(
     except (TypeError, ValueError):
         # "30s" escrito na mao no YAML estourava ValueError no clique de Enviar
         out.timeout = 0.0
+    if not math.isfinite(out.timeout) or out.timeout < 0:
+        out.timeout = 0.0
     out.verify_tls = settings.get("verifyTls", True)
     out.ca_arquivo = ""
     out.follow_redirects = settings.get("followRedirects", True)
@@ -136,9 +145,9 @@ def prepare(
         if chave.lower() not in {k.lower() for k in out.headers}:
             out.headers[chave] = valor
     if aplicada.params:
-        base, _, existente = out.url.partition("?")
+        existente = out.url.partition("#")[0].partition("?")[2]
         query = httpx.QueryParams(existente).merge(httpx.QueryParams(aplicada.params))
-        out.url = f"{base}?{query}"
+        out.url = _com_query(out.url, str(query))
     secrets.extend(aplicada.secrets)
 
     if tree is not None:
@@ -322,7 +331,9 @@ def send(prepared: Prepared) -> dict:
             "cookies": cookies_finais,
             "status": resp.status_code,
             "reason": resp.reason_phrase,
-            "headers": [[k, v] for k, v in resp.headers.items()],
+            # Set-Cookie nao pode ser juntado com virgula: Expires ja tem virgula,
+            # e cada cookie precisa continuar sendo uma linha independente.
+            "headers": [[k, v] for k, v in resp.headers.multi_items()],
             "body": resp.text,
             "content": resp.content,
             "sizeBytes": len(resp.content),

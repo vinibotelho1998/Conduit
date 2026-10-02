@@ -187,7 +187,15 @@ class History:
         resp_headers = _clean_headers_list(result.get("headers") or [], ledger)
         resp_body, resp_trunc = _clip(redact(result.get("body") or "", ledger), MAX_RESP_BODY)
 
-        trace = _extract_trace(getattr(prepared, "headers", {}) or {}, result.get("headers") or [])
+        trace = {
+            key: redact(value, ledger)
+            for key, value in _extract_trace(
+                getattr(prepared, "headers", {}) or {}, result.get("headers") or []
+            ).items()
+        }
+        erro = result.get("error")
+        if erro:
+            erro = redact(str(erro), ledger)
 
         entry = {
             "id": entry_id,
@@ -199,7 +207,7 @@ class History:
             "request": {
                 "method": getattr(prepared, "method", request.get("method") or "GET"),
                 "url": redact(getattr(prepared, "url", "") or "", ledger),
-                "urlTemplate": request.get("url") or "",
+                "urlTemplate": redact(request.get("url") or "", ledger),
                 "headers": req_headers,
                 "body": req_body,
                 "bodyTruncated": req_trunc,
@@ -208,14 +216,14 @@ class History:
             "response": {
                 "ok": bool(result.get("ok")),
                 "status": result.get("status"),
-                "reason": result.get("reason"),
+                "reason": redact(result.get("reason") or "", ledger),
                 "headers": resp_headers,
                 "body": resp_body,
                 "bodyTruncated": resp_trunc,
                 "sizeBytes": result.get("sizeBytes"),
                 "elapsedMs": result.get("elapsedMs"),
                 "finalUrl": redact(result.get("url") or "", ledger),
-                "error": result.get("error"),
+                "error": erro,
             },
             "trace": trace,
         }
@@ -244,7 +252,7 @@ class History:
                 entry["request"]["url"],
                 result.get("status"),
                 1 if result.get("ok") else 0,
-                result.get("error"),
+                erro,
                 result.get("elapsedMs"),
                 result.get("sizeBytes"),
                 " ".join(f"{k}={v}" for k, v in trace.items()),
@@ -428,7 +436,8 @@ class History:
                     # Linha que nao e uma execucao fica de fora. O indice se reconstroi
                     # sozinho ao abrir o workspace, e uma linha estranha no log derrubava
                     # a abertura inteira em vez de sair so da busca.
-                    if not isinstance(entry, dict):
+                    if (not isinstance(entry, dict) or not isinstance(entry.get("id"), str)
+                            or not entry["id"]):
                         continue
                     response = entry.get("response") if isinstance(entry.get("response"), dict) else {}
                     request = entry.get("request") if isinstance(entry.get("request"), dict) else {}
@@ -462,7 +471,8 @@ class History:
                                 " ".join(f"{k}={v}" for k, v in trace.items()),
                             ),
                         )
-                    except (sqlite3.InterfaceError, sqlite3.ProgrammingError, OverflowError):
+                    except (sqlite3.InterfaceError, sqlite3.ProgrammingError,
+                            sqlite3.IntegrityError, OverflowError):
                         # campo com lista ou mapa onde a coluna espera texto ou numero, ou
                         # inteiro maior do que o sqlite guarda
                         continue

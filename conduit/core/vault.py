@@ -26,6 +26,7 @@ import ctypes
 import json
 import os
 import secrets
+import shutil
 import threading
 from ctypes import wintypes
 from datetime import datetime
@@ -117,11 +118,18 @@ class Vault:
 
             try:
                 envelope = json.loads(self.caminho.read_text(encoding="utf-8"))
-                chave = desproteger(base64.b64decode(envelope["wrappedKey"]))
-                nonce = base64.b64decode(envelope["nonce"])
-                corpo = base64.b64decode(envelope["ciphertext"])
+                if (not isinstance(envelope, dict) or envelope.get("schemaVersion") != SCHEMA_VERSION
+                        or envelope.get("provider") != "dpapi"):
+                    raise ValueError("formato de cofre nao suportado")
+                chave = desproteger(base64.b64decode(envelope["wrappedKey"], validate=True))
+                nonce = base64.b64decode(envelope["nonce"], validate=True)
+                corpo = base64.b64decode(envelope["ciphertext"], validate=True)
                 claro = AESGCM(chave).decrypt(nonce, corpo, ENTROPIA)
-                self._dados = json.loads(claro.decode("utf-8"))
+                dados = json.loads(claro.decode("utf-8"))
+                if (not isinstance(dados, dict)
+                        or not all(isinstance(k, str) and isinstance(v, str) for k, v in dados.items())):
+                    raise ValueError("conteudo do cofre precisa ser um mapa de segredos")
+                self._dados = dados
             except Exception as exc:  # noqa: BLE001
                 # cofre de outra conta Windows, arquivo corrompido, ou provedor indisponivel
                 self._erro = f"{type(exc).__name__}: {exc}"
@@ -142,17 +150,18 @@ class Vault:
         }
 
         self.dir.mkdir(parents=True, exist_ok=True)
-        if self._erro and self.caminho.exists():
-            # Cofre que nao abriu nao e cofre vazio. Pode ser a DPAPI fora do ar por um
-            # momento, ou a chave mestra da conta ainda nao sincronizada depois de trocar a
-            # senha. Gravar por cima jogava fora todo segredo guardado, sem volta. O
-            # arquivo fica de lado, com a data no nome, pra ser aberto quando der.
-            copia = self.dir / f"{ARQUIVO}.ilegivel-{datetime.now():%Y%m%d-%H%M%S}"
-            self.caminho.replace(copia)
-            self._erro = None
         temporario = self.caminho.with_suffix(".tmp")
-        temporario.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
-        temporario.replace(self.caminho)
+        try:
+            temporario.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
+            if self._erro and self.caminho.exists():
+                # Preserva o original ate o replace final. Se o disco encher ou o
+                # replace falhar, a versao anterior continua no caminho conhecido.
+                copia = self.dir / f"{ARQUIVO}.ilegivel-{datetime.now():%Y%m%d-%H%M%S-%f}"
+                shutil.copy2(self.caminho, copia)
+            temporario.replace(self.caminho)
+        finally:
+            temporario.unlink(missing_ok=True)
+        self._erro = None
         self._dados = dict(dados)
 
     def _para_alterar(self) -> dict[str, str]:

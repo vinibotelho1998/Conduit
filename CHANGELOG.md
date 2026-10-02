@@ -1,5 +1,59 @@
 # Novidades do Conduit
 
+## Em desenvolvimento
+
+### Requisições e credenciais
+
+- A sincronização entre URL e Params decodifica e recodifica os valores uma única vez.
+  `+`, espaços, Unicode e delimitadores continuam corretos; fragmentos `#` são preservados
+- Desativar todos os parâmetros remove a query no envio, e variáveis nas chaves de Params
+  também são resolvidas
+- Headers repetidos da resposta permanecem em linhas separadas, incluindo `Set-Cookie`
+- Timeouts negativos ou não finitos deixam de derrubar o envio
+- Segredos codificados em URL ou escapados em JSON são ocultados no histórico, assim
+  como os valores em mensagens de erro, campos de rastreio e URL original
+- OAuth2 valida o formato do cache e do token, invalida o cache quando a credencial muda
+  e respeita `expires_in: 0`. A obtenção de token exige o endereço final do provedor,
+  sem seguir redirects que poderiam reenviar a credencial
+- A reconstrução do histórico ignora entradas incompletas; gravações do cofre preservam
+  o arquivo anterior se a substituição falhar, e formatos inválidos são recusados
+
+### Interface
+
+- Um novo envio limpa todas as vistas da resposta anterior, incluindo Raw, headers,
+  cookies e prévia
+- Ctrl+F abre uma vista de corpo e refoca a busca quando ela já está aberta
+- F3 e Shift+F3 selecionam e percorrem as ocorrências; Esc fecha a busca de forma
+  consistente, e um botão de fechar deixa a ação disponível pelo mouse
+- A busca informa quando não há ocorrências e desativa as setas sem resultado
+- Controles do editor e da resposta receberam nomes acessíveis
+
+### SFTP
+
+- Uploads gravam em um arquivo temporário exclusivo e só publicam o destino após
+  concluir. Substituições exigem renomeação atômica e preservam as permissões anteriores
+- Uploads sobre links simbólicos são recusados antes de escrever, preservando o link
+  e o arquivo de destino
+- Downloads usam temporários exclusivos e preservam o destino quando há falha
+- Nomes que colidem depois da adaptação para Windows recebem destinos distintos no lote
+- O progresso suporta arquivos maiores que 2 GiB, e o download limita as leituras
+  antecipadas em paralelo
+- A prévia lê apenas o trecho permitido, sem solicitar o arquivo inteiro
+- Fechar uma aba encerra a fila; resultados tardios não iniciam novas transferências
+- Operações simultâneas ficam protegidas e arquivos ocultos participam da confirmação
+  de substituição
+
+### Desenvolvimento e distribuição
+
+- Runner com seleção de suítes, progresso imediato e limite de tempo por processo
+- Workspaces temporários exclusivos permitem execuções de teste simultâneas
+- Novas regressões cobrem credenciais, HTTP, transferências, teclado e infraestrutura
+- Análise estática e testes em pull requests no Windows com Python 3.13 e 3.14
+- Ferramentas de desenvolvimento e empacotamento com versões fixadas
+- O instalador manual lê a versão do executável e o pacote inclui `NOTICE.md`
+- Releases preservam versões anteriores, incluem SHA256 e só registram a nova versão
+  depois que o instalador compila
+
 ## 0.7.0, 5 de setembro de 2026
 
 ### SFTP dentro do app

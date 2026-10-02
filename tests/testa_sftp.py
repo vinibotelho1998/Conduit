@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat as statmod
 import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from comum import Placar  # noqa: E402  (comum ajusta o sys.path)
 
@@ -114,6 +117,9 @@ def main() -> int:
         p.confere("recusa espiar binario", "binario" in str(erro), str(erro))
     texto, cortado = conexao.espiar("/entrada/retorno.csv", limite=10)
     p.confere("corta no limite e avisa", cortado and len(texto) == 10, repr(texto))
+    with patch("paramiko.SFTPFile.prefetch", side_effect=AssertionError("prefetch sem limite")):
+        texto, cortado = conexao.espiar("/entrada/retorno.csv", limite=10)
+        p.confere("previa nao solicita o arquivo inteiro", cortado and len(texto) == 10)
 
     p.secao("transferir")
     local = raiz / "baixados" / "retorno.csv"
@@ -136,6 +142,100 @@ def main() -> int:
         p.confere("recusa enviar o que nao existe", False)
     except sftp.ErroSftp:
         p.confere("recusa enviar o que nao existe", True)
+
+    p.secao("transferencia interrompida preserva o arquivo anterior")
+    origem.write_bytes(b"conteudo novo\n" * 12000)
+    remoto_seguro = raiz / "saida" / "seguro.txt"
+    remoto_seguro.write_bytes(b"versao anterior")
+    modo_anterior = remoto_seguro.stat().st_mode
+    download_seguro = raiz / "baixados" / "seguro.txt"
+    download_seguro.write_bytes(b"versao local anterior")
+    parcial_alheio = download_seguro.with_name(download_seguro.name + ".parcial")
+    parcial_alheio.write_bytes(b"arquivo independente")
+
+    def interromper(feito, total):
+        raise RuntimeError("interrupcao deliberada do teste")
+
+    for operacao, args in (
+        (conexao.enviar, (origem, "/saida/seguro.txt")),
+        (conexao.baixar, ("/binario.bin", download_seguro)),
+    ):
+        try:
+            operacao(*args, progresso=interromper)
+            p.confere(f"{operacao.__name__} relata interrupcao", False)
+        except sftp.ErroSftp:
+            p.confere(f"{operacao.__name__} relata interrupcao", True)
+    p.confere("upload interrompido preserva o destino", remoto_seguro.read_bytes() == b"versao anterior")
+    p.confere("download interrompido preserva o destino", download_seguro.read_bytes() == b"versao local anterior")
+    p.confere("temporario alheio permanece intacto", parcial_alheio.read_bytes() == b"arquivo independente")
+    p.confere("limpa os temporarios proprios", not list(raiz.rglob(".conduit-*.parcial")))
+    conexao.enviar(origem, "/saida/seguro.txt")
+    p.confere("substituicao completa entrega o novo conteudo", remoto_seguro.read_bytes() == origem.read_bytes())
+    p.confere("substituicao conserva permissoes", remoto_seguro.stat().st_mode == modo_anterior)
+    conexao.baixar("/saida/seguro.txt", download_seguro)
+    p.confere("download completo substitui o destino", download_seguro.read_bytes() == origem.read_bytes())
+    p.confere("download completo preserva o parcial alheio", parcial_alheio.read_bytes() == b"arquivo independente")
+
+    p.secao("upload preserva links simbolicos")
+    alvo_link = raiz / "saida" / "alvo-do-link.txt"
+    alvo_link.write_bytes(b"conteudo original do alvo")
+    caminho_link = raiz / "saida" / "atalho.txt"
+    try:
+        caminho_link.symlink_to(alvo_link.name)
+        link_real = True
+    except OSError:
+        # Criar links pode exigir privilegio no Windows. Nesse caso somente os
+        # metadados sao simulados; o upload ainda deve recusar antes de gravar.
+        link_real = False
+
+    def recusar_link(remoto: str) -> None:
+        try:
+            conexao.enviar(origem, remoto)
+            p.confere("upload sobre link explica a recusa", False, remoto)
+        except sftp.ErroSftp as erro:
+            p.confere("upload sobre link explica a recusa", "link simbolico" in str(erro), str(erro))
+
+    if link_real:
+        recusar_link("/saida/atalho.txt")
+        p.confere("link existente permanece link", caminho_link.is_symlink())
+        p.confere("alvo do link permanece intacto", alvo_link.read_bytes() == b"conteudo original do alvo")
+        alvo_link.unlink()
+        recusar_link("/saida/atalho.txt")
+        p.confere("link quebrado permanece link", caminho_link.is_symlink())
+        p.confere("upload nao recria alvo de link quebrado", not alvo_link.exists())
+        caminho_link.unlink()
+    else:
+        canal = conexao._canal()
+        metadados_link = SimpleNamespace(st_mode=statmod.S_IFLNK | 0o777)
+        with (
+            patch.object(canal, "lstat", return_value=metadados_link),
+            patch.object(canal, "open") as abrir,
+            patch.object(canal, "put") as enviar,
+        ):
+            recusar_link("/saida/atalho.txt")
+            p.confere("recusa link antes de criar temporario", not abrir.called)
+            p.confere("recusa link antes de transferir bytes", not enviar.called)
+        p.confere("recusa preserva o alvo", alvo_link.read_bytes() == b"conteudo original do alvo")
+    p.confere("recusa de link nao deixa temporario", not list((raiz / "saida").glob(".conduit-*.parcial")))
+
+    p.secao("servidor sem extensao de substituicao atomica")
+    porta_basica = servidor_falso.subir(str(raiz), renomear_atomico=False)
+    basica = sftp.Conexao(sftp.Perfil(
+        id="basica", host="127.0.0.1", porta=porta_basica,
+        usuario=servidor_falso.USUARIO,
+    ), known)
+    basica.abrir(senha=servidor_falso.SENHA, confiar=True)
+    basica.enviar(origem, "/saida/novo-basico.txt")
+    p.confere("rename padrao publica arquivo novo", (raiz / "saida" / "novo-basico.txt").read_bytes() == origem.read_bytes())
+    remoto_seguro.write_bytes(b"preservar sem extensao")
+    try:
+        basica.enviar(origem, "/saida/seguro.txt")
+        p.confere("substituicao sem suporte falha claramente", False)
+    except sftp.ErroSftp as erro:
+        p.confere("substituicao sem suporte falha claramente", "falhou ao enviar" in str(erro), str(erro))
+    p.confere("fallback nunca remove destino existente", remoto_seguro.read_bytes() == b"preservar sem extensao")
+    p.confere("fallback limpa o temporario", not list((raiz / "saida").glob(".conduit-*.parcial")))
+    basica.fechar()
 
     p.secao("criar, renomear e apagar")
     conexao.criar_pasta("/saida/lote-2026")
@@ -288,6 +388,12 @@ def main() -> int:
         p.confere("arquivo oculto do servidor mantem o ponto", ocultos == [".env", ".htaccess"], str(ocultos))
     except Exception as erro:  # noqa: BLE001
         p.confere("nome local existe", False, f"{type(erro).__name__}: {erro}")
+    destinos = sftp.destinos_locais(pasta_local, [
+        "relatorio:2026.csv", "relatorio?2026.csv", "RELATORIO_2026.csv", "relatorio_2026 (2).csv",
+    ])
+    p.confere("lote nao sobrescreve nomes sanitizados iguais", len({d.name.casefold() for d in destinos}) == 4,
+              str([d.name for d in destinos]))
+    p.confere("todos os destinos do lote ficam dentro da pasta", all(d.parent == pasta_local for d in destinos))
 
     shutil.rmtree(raiz, ignore_errors=True)
     return p.fechar()

@@ -1,11 +1,14 @@
 ; Instalador do Conduit.
 ;
 ; Compile por packaging/Conduit.spec (PyInstaller) e depois este arquivo. A versao
-; vem de /DMyAppVersion, passada pelo CI, com uma reserva pra compilar na mao.
+; vem de /DMyAppVersion, passada pelo CI, ou do executavel ao compilar na mao.
 
 #define MyAppName "Conduit"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.6.0"
+  #define MyAppVersion GetFileVersionString(AddBackslash(SourcePath) + "..\dist\Conduit\Conduit.exe")
+  #if MyAppVersion == ""
+    #error "Compile packaging/Conduit.spec antes de gerar o instalador."
+  #endif
 #endif
 #define MyAppPublisher "Vinicius Botelho"
 #define MyAppExeName "Conduit.exe"

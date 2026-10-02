@@ -140,6 +140,7 @@ def flat_button(texto: str, dica: str = "", icone=None) -> QToolButton:
     else:
         btn.setText(texto)
     btn.setToolTip(dica or texto)
+    btn.setAccessibleName(texto or dica)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     return btn
 
@@ -223,6 +224,8 @@ class Espera(QWidget):
 class BodyView(QWidget):
     """Corpo com realce, busca embutida e quebra de linha opcional."""
 
+    fechar_busca = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
@@ -231,6 +234,7 @@ class BodyView(QWidget):
 
         self.edit = EditorNumerado()
         self.edit.setReadOnly(True)
+        self.edit.setAccessibleName("Corpo da resposta")
         self.edit.setFont(mono(9))
         self.edit.setFrameShape(QFrame.Shape.NoFrame)
         self.edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
@@ -249,6 +253,7 @@ class BodyView(QWidget):
 
         self.busca = QLineEdit()
         self.busca.setPlaceholderText("Procurar no corpo")
+        self.busca.setAccessibleName("Procurar no corpo da resposta")
         self.busca.setClearButtonEnabled(True)
         self.busca.textChanged.connect(self._marcar)
         self.busca.returnPressed.connect(lambda: self._pular(1))
@@ -258,27 +263,43 @@ class BodyView(QWidget):
         self.contador.setObjectName("hint")
         bl.addWidget(self.contador)
 
-        anterior = flat_button("‹", "anterior")
-        anterior.clicked.connect(lambda: self._pular(-1))
-        proximo = flat_button("›", "proximo")
-        proximo.clicked.connect(lambda: self._pular(1))
-        bl.addWidget(anterior)
-        bl.addWidget(proximo)
+        self.anterior = flat_button("‹", "Ocorrencia anterior (Shift+F3)")
+        self.anterior.setAccessibleName("Ocorrencia anterior")
+        self.anterior.clicked.connect(lambda: self._pular(-1))
+        self.proximo = flat_button("›", "Proxima ocorrencia (F3)")
+        self.proximo.setAccessibleName("Proxima ocorrencia")
+        self.proximo.clicked.connect(lambda: self._pular(1))
+        bl.addWidget(self.anterior)
+        bl.addWidget(self.proximo)
+        self.anterior.setEnabled(False)
+        self.proximo.setEnabled(False)
+        self.btn_fechar_busca = flat_button("", "Fechar busca (Esc)", icons.icone_fechar)
+        self.btn_fechar_busca.clicked.connect(self._fechar_busca)
+        bl.addWidget(self.btn_fechar_busca)
         layout.addWidget(barra)
 
-        self._ocorrencias: list[int] = []
+        self._ocorrencias: list[tuple[int, int]] = []
         self._atual = -1
 
         fechar = QShortcut(QKeySequence(Qt.Key.Key_Escape), self.busca)
         fechar.setContext(Qt.ShortcutContext.WidgetShortcut)
-        fechar.activated.connect(lambda: self.mostrar_busca(False))
+        fechar.activated.connect(self._fechar_busca)
+        for tecla, passo in (("F3", 1), ("Shift+F3", -1), ("Shift+Return", -1)):
+            atalho = QShortcut(QKeySequence(tecla), self)
+            atalho.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            atalho.activated.connect(lambda p=passo: self._pular(p))
 
-    def mostrar_busca(self, ligado: bool) -> None:
+    def _fechar_busca(self) -> None:
+        self.mostrar_busca(False)
+        self.fechar_busca.emit()
+        self.edit.setFocus()
+
+    def mostrar_busca(self, ligado: bool, focar: bool = True) -> None:
         self.barra_busca.setVisible(ligado)
-        if ligado:
+        if ligado and focar:
             self.busca.setFocus()
             self.busca.selectAll()
-        else:
+        elif not ligado:
             self.busca.clear()
 
     def set_text(self, texto: str, language: str) -> None:
@@ -310,10 +331,12 @@ class BodyView(QWidget):
                 selecao.cursor = cursor
                 selecao.format.setBackground(QColor(theme.CODIGO["achado"]))
                 selecoes.append(selecao)
-                self._ocorrencias.append(cursor.position())
+                self._ocorrencias.append((cursor.selectionStart(), cursor.selectionEnd()))
 
         self.edit.setExtraSelections(selecoes)
-        self.contador.setText(f"{len(self._ocorrencias)}" if termo else "")
+        self.anterior.setEnabled(bool(self._ocorrencias))
+        self.proximo.setEnabled(bool(self._ocorrencias))
+        self.contador.setText("Nenhuma ocorrencia" if termo and not self._ocorrencias else "")
         if self._ocorrencias:
             self._pular(1)
 
@@ -322,8 +345,11 @@ class BodyView(QWidget):
             return
         self._atual = (self._atual + passo) % len(self._ocorrencias)
         cursor = self.edit.textCursor()
-        cursor.setPosition(self._ocorrencias[self._atual])
+        inicio, fim = self._ocorrencias[self._atual]
+        cursor.setPosition(inicio)
+        cursor.setPosition(fim, QTextCursor.MoveMode.KeepAnchor)
         self.edit.setTextCursor(cursor)
+        self.edit.ensureCursorVisible()
         self.contador.setText(f"{self._atual + 1} de {len(self._ocorrencias)}")
 
 
@@ -506,6 +532,8 @@ class ResponseView(QWidget):
 
         self.pretty = BodyView()
         self.raw = BodyView()
+        for corpo in (self.pretty, self.raw):
+            corpo.fechar_busca.connect(lambda: self.btn_busca.setChecked(False))
         self.preview_box = QWidget()
         self.headers_box = QWidget()
         self.cookies_box = QWidget()
@@ -526,18 +554,29 @@ class ResponseView(QWidget):
 
         atalho = QShortcut(QKeySequence.StandardKey.Find, self)
         atalho.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        atalho.activated.connect(lambda: self.btn_busca.setChecked(True))
+        atalho.activated.connect(self._abrir_busca)
 
         self.clear()
 
     def _alternar_busca(self, ligado: bool) -> None:
+        if ligado and not self.btn_busca.isEnabled():
+            self.btn_busca.setChecked(False)
+            return
+        if ligado and not isinstance(self.tabs.currentWidget(), BodyView):
+            self.tabs.setCurrentWidget(self.pretty)
         for corpo in (self.pretty, self.raw):
-            corpo.mostrar_busca(ligado)
+            corpo.mostrar_busca(ligado, focar=False)
         if ligado:
             atual = self.tabs.currentWidget()
-            if isinstance(atual, BodyView):
-                atual.busca.setFocus()
+            atual.mostrar_busca(True)
 
+    def _abrir_busca(self) -> None:
+        if not self.btn_busca.isEnabled():
+            return
+        if self.btn_busca.isChecked():
+            self._alternar_busca(True)
+        else:
+            self.btn_busca.setChecked(True)
 
     def _ligar_acoes(self, ligado: bool, exemplo: bool = True) -> None:
         """Sem resposta, copiar, salvar e guardar exemplo nao tem o que fazer.
@@ -561,10 +600,12 @@ class ResponseView(QWidget):
         self._raw_pendente = None
         self._grande = False
         self.faixa.esconder()
+        self.btn_busca.setChecked(False)
         self._ligar_acoes(False)
         self.marca.hide()
         self.pill.hide()
         self.metricas.setText("")
+        self.metricas.setToolTip("")
         self.url_final.setText("")
         self.pretty.set_text("", "none")
         self.pretty.edit.setPlaceholderText(
@@ -590,16 +631,15 @@ class ResponseView(QWidget):
         enviando nao e resultado nenhum: fica um retangulo aceso no meio da tela
         dizendo nada.
         """
-        self.pill.hide()
-        self.marca.hide()
+        # Todo o painel pertence ao envio atual. Limpar so Pretty deixava os headers,
+        # cookies, Raw e a previa do envio anterior sob a etiqueta "enviando".
+        self.clear()
+        self.tabs.setCurrentWidget(self.pretty)
         self.espera.start()
-        self.metricas.setText("")
         self.url_final.setText(url)
-        self.pretty.edit.setPlaceholderText("aguardando resposta")
-        self.pretty.set_text("", "none")
-        self.faixa.esconder()
-        self._ligar_acoes(False)
-        self.exibido = None
+        self.pretty.edit.setPlaceholderText(
+            "aguardando resposta\n\nCancelar no request abandona a espera"
+        )
 
     def _marcar(self, texto: str) -> None:
         """Etiqueta de quando a tela nao mostra uma chamada de agora: exemplo ou historico."""
@@ -663,8 +703,7 @@ class ResponseView(QWidget):
             if atraso:
                 miudos.append(atraso)
         self.metricas.setText("   ·   ".join(p for p in pedacos if p))
-        if miudos:
-            self.metricas.setToolTip(dica_de_fora("\n".join(miudos)))
+        self.metricas.setToolTip(dica_de_fora("\n".join(miudos)) if miudos else "")
 
         final = data.get("url") or (sent or {}).get("url") or ""
         self.url_final.setText(final)

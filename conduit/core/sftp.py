@@ -31,6 +31,7 @@ import posixpath
 import re
 import secrets
 import stat as statmod
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -238,6 +239,22 @@ def destino_local(pasta: str | Path, nome: str) -> Path:
     return Path(pasta) / nome_local(nome)
 
 
+def destinos_locais(pasta: str | Path, nomes: list[str]) -> list[Path]:
+    """Destinos distintos mesmo quando dois nomes remotos viram o mesmo no Windows."""
+    usados: set[str] = set()
+    saida = []
+    for nome in nomes:
+        alvo = destino_local(pasta, nome)
+        original = alvo
+        numero = 2
+        while alvo.name.casefold() in usados:
+            alvo = original.with_name(f"{original.stem} ({numero}){original.suffix}")
+            numero += 1
+        usados.add(alvo.name.casefold())
+        saida.append(alvo)
+    return saida
+
+
 def migalhas(caminho: str) -> list[tuple[str, str]]:
     """A trilha do caminho, como pares de rotulo e destino, pra barra de navegacao."""
     caminho = posixpath.normpath(caminho or "/")
@@ -439,24 +456,36 @@ class Conexao:
     def baixar(self, remoto: str, local: str | Path, progresso=None) -> Path:
         destino = Path(local)
         with self._cadeado:
-            destino.parent.mkdir(parents=True, exist_ok=True)
-            # grava num .parcial e so renomeia no fim: transferencia interrompida nao
-            # deixa pra tras um arquivo pela metade com o nome do arquivo bom
-            parcial = destino.with_name(destino.name + ".parcial")
+            parcial = None
             try:
-                self._canal().get(remoto, str(parcial), callback=progresso)
+                destino.parent.mkdir(parents=True, exist_ok=True)
+                # Um nome exclusivo evita apagar outro download ou um arquivo que a
+                # pessoa ja tinha chamado de relatorio.csv.parcial.
+                with tempfile.NamedTemporaryFile(
+                    dir=destino.parent, prefix=".conduit-", suffix=".parcial", delete=False
+                ) as arquivo:
+                    parcial = Path(arquivo.name)
+                self._canal().get(
+                    remoto, str(parcial), callback=progresso,
+                    max_concurrent_prefetch_requests=32,
+                )
                 parcial.replace(destino)
             except OSError as exc:
-                parcial.unlink(missing_ok=True)
                 raise ErroSftp(f"falhou ao baixar {posixpath.basename(remoto)}: {exc}") from exc
             except Exception as exc:  # noqa: BLE001
                 # conexao que cai no meio vem do paramiko como SSHException ou EOFError,
                 # que nao sao OSError: o .parcial ficava pra tras na pasta de destino
-                parcial.unlink(missing_ok=True)
                 raise ErroSftp(
                     f"a conexao caiu enquanto baixava {posixpath.basename(remoto)}: "
                     f"{type(exc).__name__} {exc}".strip()
                 ) from exc
+            finally:
+                if parcial is not None:
+                    try:
+                        parcial.unlink(missing_ok=True)
+                    except OSError:
+                        # Nao esconder a falha da transferencia por uma falha de limpeza.
+                        pass
         return destino
 
     def enviar(self, local: str | Path, remoto: str, progresso=None) -> str:
@@ -464,10 +493,54 @@ class Conexao:
         if not origem.is_file():
             raise ErroSftp(f"{origem} nao e um arquivo")
         with self._cadeado:
+            canal = self._canal()
+            parcial = juntar(
+                posixpath.dirname(remoto) or ".", f".conduit-{secrets.token_hex(12)}.parcial"
+            )
+            reservado = False
             try:
-                self._canal().put(str(origem), remoto, callback=progresso, confirm=True)
-            except OSError as exc:
+                try:
+                    modo_anterior = canal.lstat(remoto).st_mode
+                except FileNotFoundError:
+                    modo_anterior = None
+                if modo_anterior is not None and statmod.S_ISLNK(modo_anterior):
+                    # Publicar por rename substituiria o link, sem alterar seu alvo.
+                    # Recusar tambem o link quebrado preserva a estrutura do servidor.
+                    raise ErroSftp(
+                        "o destino e um link simbolico. Envie diretamente para o arquivo "
+                        "apontado pelo link para preservar o link e seu alvo"
+                    )
+                # Reserva exclusiva: nunca reutiliza um temporario de outra operacao.
+                with canal.open(parcial, "wx"):
+                    reservado = True
+                if modo_anterior is not None:
+                    # Durante o envio, nao ampliar as permissoes de um arquivo privado.
+                    canal.chmod(parcial, 0o600)
+                # Publica so depois de confirmar o tamanho. Uma queda no meio nao pode
+                # truncar o arquivo que ja existia no servidor.
+                canal.put(str(origem), parcial, callback=progresso, confirm=True)
+                if modo_anterior is not None:
+                    canal.chmod(parcial, statmod.S_IMODE(modo_anterior))
+                try:
+                    self.renomear(parcial, remoto)
+                except ErroSftp as exc:
+                    if modo_anterior is not None:
+                        raise ErroSftp(
+                            "o servidor nao permitiu publicar o arquivo completo. "
+                            "A substituicao exige suporte a renomeacao atomica; "
+                            "o destino nao foi removido para forcar o envio"
+                        ) from exc
+                    raise
+            except Exception as exc:  # noqa: BLE001
                 raise ErroSftp(f"falhou ao enviar {origem.name}: {exc}") from exc
+            finally:
+                try:
+                    if reservado:
+                        canal.remove(parcial)
+                except Exception:  # noqa: BLE001
+                    # Se o canal caiu, a limpeza remota pode nao ser possivel. O nome
+                    # oculto e parcial nao se confunde com um envio concluido.
+                    pass
         return remoto
 
     def espiar(self, caminho: str, limite: int = LIMITE_ESPIADA) -> tuple[str, bool]:
@@ -475,7 +548,8 @@ class Conexao:
         with self._cadeado:
             try:
                 with self._canal().open(caminho, "rb") as arquivo:
-                    arquivo.prefetch()
+                    # prefetch() sem tamanho solicita o arquivo inteiro, inclusive um
+                    # log de varios GB do qual a previa so precisa de 512 KiB.
                     bruto = arquivo.read(limite + 1)
             except OSError as exc:
                 raise ErroSftp(f"nao consegui abrir {posixpath.basename(caminho)}: {exc}") from exc

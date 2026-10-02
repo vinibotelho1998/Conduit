@@ -6,43 +6,47 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
+# Publicacoes em andamento precisam terminar; nunca interromper apos o push da versao.
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Analise estatica
+        run: python -m pyflakes conduit tests packaging/launcher.py
 
       - name: Testes
-        # Antes de gerar instalador. Nao adianta publicar rapido o que esta quebrado, e a
-        # suite sobe a janela de verdade num Qt sem tela e um servidor SFTP local.
         run: python tests/rodar.py
 
-      - name: Incrementar versao
+      - name: Preparar versao local
         id: versao
-        # Depois dos testes de proposito. Este passo faz commit e push da versao
-        # nova; rodando antes, todo build quebrado deixava um commit de versao no
-        # repositorio pra um instalador que nunca chegou a existir.
+        # So grava no checkout. O commit so e enviado depois de compilar o instalador.
         run: |
           $conteudo = Get-Content -Path "conduit/__init__.py" -Raw
           $m = [regex]::Match($conteudo, '__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"')
@@ -51,20 +55,14 @@ jobs:
           $minor = [int]$m.Groups[2].Value
           $patch = [int]$m.Groups[3].Value + 1
           $nova = "$major.$minor.$patch"
-
+          $data = [DateTime]::UtcNow.ToString('yyyy-MM-dd')
           $conteudo = $conteudo -replace '__version__\s*=\s*"\d+\.\d+\.\d+"', "__version__ = `"$nova`""
-          Set-Content -Path "conduit/__init__.py" -Value $conteudo -NoNewline
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add conduit/__init__.py
-          git commit -m "chore: incrementa versao para $nova [skip ci]"
-          git push origin HEAD:main
-
-          echo "numero=$nova" >> $env:GITHUB_OUTPUT
+          $conteudo = $conteudo -replace 'VERSION_DATE\s*=\s*"[^"]+"', "VERSION_DATE = `"$data`""
+          Set-Content -Path "conduit/__init__.py" -Value $conteudo -NoNewline -Encoding utf8
+          "numero=$nova" >> $env:GITHUB_OUTPUT
 
       - name: Build do app (PyInstaller)
-        run: pyinstaller packaging/Conduit.spec --noconfirm --distpath dist --workpath build
+        run: python -m PyInstaller packaging/Conduit.spec --noconfirm --distpath dist --workpath build
 
       - name: Instalar Inno Setup
         run: choco install innosetup --no-progress -y
@@ -72,20 +70,40 @@ jobs:
       - name: Compilar instalador
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.versao.outputs.numero }}" packaging\Conduit_Setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar o instalador" }
+          if (-not (Test-Path -LiteralPath "dist/Conduit-Setup.exe")) { throw "Instalador ausente" }
+          $hash = (Get-FileHash -LiteralPath "dist/Conduit-Setup.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Conduit-Setup.exe" | Set-Content -LiteralPath "dist/SHA256SUMS.txt" -Encoding ascii
 
-      - name: Publicar release "latest"
+      - name: Registrar versao compilada
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add conduit/__init__.py
+          git commit -m "chore: incrementa versao para ${{ steps.versao.outputs.numero }} [skip ci]"
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao registrar a versao" }
+          # Se main mudou durante o build, o push falha sem sobrescrever trabalho novo.
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw "main mudou durante o build; execute novamente" }
+          $commit = git rev-parse HEAD
+          "sha=$commit" >> $env:GITHUB_OUTPUT
+
+      - name: Publicar release versionada
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.versao.outputs.numero }}
+          RELEASE_COMMIT: ${{ steps.commit.outputs.sha }}
         run: |
-          # Na primeira release nao existe 'latest' pra apagar, e o gh sai com codigo
-          # diferente de zero nesse caso. Aqui isso mata a etapa, porque o Actions roda
-          # com $ErrorActionPreference = 'stop' e o pwsh 7.4 trata saida de programa
-          # externo como erro. Entao o apagar corre solto e o codigo dele e' descartado.
-          $ErrorActionPreference = 'Continue'
-          gh release delete latest --cleanup-tag --yes 2>$null
-          $ErrorActionPreference = 'Stop'
+          $tag = "v$env:RELEASE_VERSION"
+          @"
+          Instalador do Conduit v$env:RELEASE_VERSION.
 
-          gh release create latest "dist/Conduit-Setup.exe" `
-            --title "Conduit v${{ steps.versao.outputs.numero }}" `
-            --notes "Instalador gerado automaticamente do commit ${{ github.sha }} (versao ${{ steps.versao.outputs.numero }})." `
-            --latest
+          Gerado do commit $env:RELEASE_COMMIT, depois da analise estatica e dos testes.
+          O arquivo SHA256SUMS.txt permite conferir a integridade do instalador.
+          "@ | Set-Content -LiteralPath release-notes.txt -Encoding utf8
+          # Cria com todos os arquivos antes de publicar. A release anterior continua disponivel.
+          gh release create $tag "dist/Conduit-Setup.exe" "dist/SHA256SUMS.txt" --draft --target $env:RELEASE_COMMIT --title "Conduit v$env:RELEASE_VERSION" --notes-file release-notes.txt
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao criar a release" }
+          gh release edit $tag --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw "A release ficou em rascunho; confira os arquivos antes de publicar" }
