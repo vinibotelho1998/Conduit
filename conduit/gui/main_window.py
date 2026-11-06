@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
+from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -973,10 +973,8 @@ class MainWindow(QMainWindow):
         )
 
     def open_workspace_folder(self) -> None:
-        import os
-
         if self.workspace_id:
-            os.startfile(ws.get_workspace(self.workspace_id)["path"])  # noqa: S606
+            QDesktopServices.openUrl(QUrl.fromLocalFile(ws.get_workspace(self.workspace_id)["path"]))
 
 
     def _reload_envs(self) -> None:

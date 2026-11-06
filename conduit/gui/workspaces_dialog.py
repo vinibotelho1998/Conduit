@@ -11,11 +11,10 @@ principal, o resto e secundario e o destrutivo fica sozinho do outro lado da bar
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -422,8 +421,8 @@ class WorkspacesDialog(QDialog):
 
     def abrir_pasta(self) -> None:
         entrada = self.selecionado()
-        if entrada and os.name == "nt":
-            os.startfile(entrada["path"])  # noqa: S606
+        if entrada:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(entrada["path"]))
 
     def usar(self) -> None:
         entrada = self.selecionado()

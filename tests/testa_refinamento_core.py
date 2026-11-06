@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -201,13 +202,39 @@ class PersistenciaTests(unittest.TestCase):
             chave = AESGCM.generate_key(bit_length=256)
             nonce = b"012345678901"
             corpo = AESGCM(chave).encrypt(nonce, b'["nao e mapa"]', vault.ENTROPIA)
-            envelope = {"schemaVersion": 1, "provider": "dpapi", "wrappedKey": base64.b64encode(chave).decode(),
+            envelope = {"schemaVersion": 1, "provider": vault.PROVIDER, "wrappedKey": base64.b64encode(chave).decode(),
                         "nonce": base64.b64encode(nonce).decode(), "ciphertext": base64.b64encode(corpo).decode()}
             caminho.write_text(json.dumps(envelope), encoding="utf-8")
             with patch.object(vault, "desproteger", side_effect=lambda dados: dados):
                 cofre = vault.Vault(pasta)
                 self.assertEqual(cofre.get("qualquer"), "")
                 self.assertIn("mapa de segredos", cofre.erro)
+
+    @unittest.skipUnless(vault.LINUX, "chave da conta Linux")
+    def test_perder_a_chave_da_conta_preserva_cofre_inteiro(self):
+        with tempfile.TemporaryDirectory() as base, patch.dict(os.environ, {"XDG_CONFIG_HOME": base}):
+            pasta = Path(base) / "workspace"
+            cofre = vault.Vault(pasta)
+            cofre.set("primeiro", "segredo")
+            original = cofre.caminho.read_bytes()
+            chave = Path(base) / "conduit" / "vault.key"
+            self.assertEqual(chave.stat().st_mode & 0o777, 0o600)
+            chave.unlink()
+            with self.assertRaises(ValueError):
+                vault.Vault(pasta).set("segundo", "outra credencial")
+            self.assertEqual(cofre.caminho.read_bytes(), original)
+            self.assertFalse(chave.exists())
+
+    @unittest.skipUnless(vault.LINUX, "importação de workspace Windows")
+    def test_cofre_dpapi_importado_fica_intacto(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            cofre = vault.Vault(pasta)
+            cofre.dir.mkdir()
+            original = json.dumps({"schemaVersion": 1, "provider": "dpapi"}).encode()
+            cofre.caminho.write_bytes(original)
+            with self.assertRaisesRegex(ValueError, "conta de origem"):
+                cofre.set("novo", "valor")
+            self.assertEqual(cofre.caminho.read_bytes(), original)
 
     def test_falha_de_gravacao_preserva_cofre_original(self):
         with tempfile.TemporaryDirectory(prefix="conduit-cofre-") as pasta:

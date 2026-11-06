@@ -1,0 +1,89 @@
+name: Conduit Linux
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      release_commit:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_commit || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Instalar bibliotecas do Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-keysyms1
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pyflakes conduit tests packaging/launcher.py
+      - run: python tests/rodar.py
+      - name: Empacotar e verificar executável
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+        run: |
+          python -m PyInstaller packaging/Conduit.spec --noconfirm
+          version=$(python -c 'from conduit import __version__; print(__version__)')
+          test -z "$RELEASE_TAG" || test "$RELEASE_TAG" = "v$version"
+          test "$(dist/Conduit/Conduit --version)" = "Conduit $version"
+          CONDUIT_HOME="$RUNNER_TEMP/conduit-smoke" dist/Conduit/Conduit ws
+          file="Conduit-$version-linux-x86_64.tar.gz"
+          tar -C dist -czf "dist/$file" Conduit
+          (cd dist && sha256sum "$file" > "$file.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Conduit-Linux
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  publish:
+    if: inputs.release_tag == '' && github.ref_type == 'tag'
+    needs: build
+    concurrency:
+      group: release-assets-${{ github.ref_name }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Conduit-Linux
+          path: package
+      - name: Publicar na release da tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" package/* --clobber
+          else
+            gh release create "$RELEASE_TAG" package/* --verify-tag --latest=false --title "Conduit $RELEASE_TAG" --generate-notes
+          fi

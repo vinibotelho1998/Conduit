@@ -27,12 +27,17 @@ import json
 import os
 import secrets
 import shutil
+import sys
 import threading
+from contextlib import contextmanager
 from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+LINUX = sys.platform.startswith("linux")
+PROVIDER = "linux-account-key-v1" if LINUX else "dpapi"
 
 SCHEMA_VERSION = 1
 ARQUIVO = "vault.dbx"
@@ -80,10 +85,19 @@ def _dpapi(funcao: str, dados: bytes) -> bytes:
 
 
 def proteger(dados: bytes) -> bytes:
+    if LINUX:
+        from .linux_key import account_key
+
+        nonce = secrets.token_bytes(12)
+        return nonce + AESGCM(account_key(create=True)).encrypt(nonce, dados, ENTROPIA)
     return _dpapi("CryptProtectData", dados)
 
 
 def desproteger(dados: bytes) -> bytes:
+    if LINUX:
+        from .linux_key import account_key
+
+        return AESGCM(account_key(create=False)).decrypt(dados[:12], dados[12:], ENTROPIA)
     return _dpapi("CryptUnprotectData", dados)
 
 
@@ -100,6 +114,7 @@ class Vault:
         self.caminho = self.dir / ARQUIVO
         self._dados: dict[str, str] | None = None
         self._erro: str | None = None
+        self._bloqueado = False
 
 
     def _nova_chave(self) -> bytes:
@@ -118,10 +133,19 @@ class Vault:
 
             try:
                 envelope = json.loads(self.caminho.read_text(encoding="utf-8"))
-                if (not isinstance(envelope, dict) or envelope.get("schemaVersion") != SCHEMA_VERSION
-                        or envelope.get("provider") != "dpapi"):
+                if not isinstance(envelope, dict) or envelope.get("schemaVersion") != SCHEMA_VERSION:
                     raise ValueError("formato de cofre nao suportado")
-                chave = desproteger(base64.b64decode(envelope["wrappedKey"], validate=True))
+                if envelope.get("provider") != PROVIDER:
+                    self._bloqueado = True
+                    raise ValueError("O cofre pertence a outro sistema. Abra-o na conta de origem.")
+                embrulhada = base64.b64decode(envelope["wrappedKey"], validate=True)
+                try:
+                    chave = desproteger(embrulhada)
+                except Exception:
+                    # Um envelope Linux íntegro tem nonce, chave AES-256 e tag.
+                    # Preserve-o se a chave da conta se perdeu ou outra conta o abriu.
+                    self._bloqueado = LINUX and len(embrulhada) == 12 + 32 + 16
+                    raise
                 nonce = base64.b64decode(envelope["nonce"], validate=True)
                 corpo = base64.b64decode(envelope["ciphertext"], validate=True)
                 claro = AESGCM(chave).decrypt(nonce, corpo, ENTROPIA)
@@ -137,13 +161,15 @@ class Vault:
             return self._dados
 
     def _gravar(self, dados: dict[str, str]) -> None:
+        if self._bloqueado:
+            raise ValueError(self._erro)
         chave = self._nova_chave()
         nonce = secrets.token_bytes(12)
         corpo = AESGCM(chave).encrypt(nonce, json.dumps(dados, ensure_ascii=False).encode("utf-8"), ENTROPIA)
 
         envelope = {
             "schemaVersion": SCHEMA_VERSION,
-            "provider": "dpapi",
+            "provider": PROVIDER,
             "wrappedKey": base64.b64encode(proteger(chave)).decode("ascii"),
             "nonce": base64.b64encode(nonce).decode("ascii"),
             "ciphertext": base64.b64encode(corpo).decode("ascii"),
@@ -164,6 +190,19 @@ class Vault:
         self._erro = None
         self._dados = dict(dados)
 
+    @contextmanager
+    def _edicao(self):
+        with _TRAVA:
+            if not LINUX:
+                yield
+                return
+            import fcntl
+
+            self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+            with (self.dir / ".lock").open("ab") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                yield
+
     def _para_alterar(self) -> dict[str, str]:
         """O que esta no disco agora, e nao o que esta instancia leu la atras.
 
@@ -173,6 +212,7 @@ class Vault:
         """
         self._dados = None
         self._erro = None
+        self._bloqueado = False
         return dict(self._carregar())
 
 
@@ -183,13 +223,13 @@ class Vault:
 
     @property
     def disponivel(self) -> bool:
-        return os.name == "nt"
+        return LINUX or os.name == "nt"
 
     def get(self, chave: str, padrao: str = "") -> str:
         return self._carregar().get(chave, padrao)
 
     def set(self, chave: str, valor: str) -> None:
-        with _TRAVA:
+        with self._edicao():
             dados = self._para_alterar()
             if valor:
                 dados[chave] = valor
@@ -199,7 +239,7 @@ class Vault:
 
     def set_muitos(self, pares: dict[str, str]) -> int:
         """Grava varios de uma vez, que e o caso da gravacao do workspace."""
-        with _TRAVA:
+        with self._edicao():
             dados = self._para_alterar()
             antes = dict(dados)
             for chave, valor in pares.items():
@@ -213,7 +253,7 @@ class Vault:
             return len(dados)
 
     def remover_prefixo(self, prefixo: str) -> int:
-        with _TRAVA:
+        with self._edicao():
             dados = self._para_alterar()
             alvos = [c for c in dados if c.startswith(prefixo)]
             for chave in alvos:

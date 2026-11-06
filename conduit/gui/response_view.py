@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
@@ -965,7 +965,7 @@ class ResponseView(QWidget):
         achado = RE_NOME_ARQUIVO.search(header_value(headers, "content-disposition"))
         if not achado:
             return ""
-        return Path(unquote(achado.group(1)).strip()).name
+        return PureWindowsPath(unquote(achado.group(1)).strip()).name
 
     # Sufixo pelo content-type. Sem isso toda resposta saia .txt, e imagem ou pdf
     # gravados como texto viravam arquivo ilegivel.

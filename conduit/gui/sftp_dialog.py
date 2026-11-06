@@ -128,7 +128,7 @@ class PerfilDialog(QDialog):
         self.guardar.setChecked(True)
         self.guardar.setToolTip(
             "O cofre e o mesmo das variaveis secretas: AES-256-GCM, com a chave presa a "
-            "sua conta do Windows. O arquivo versionado do workspace fica so com host, "
+            "sua conta local. O arquivo versionado do workspace fica so com host, "
             "porta e usuario."
         )
         raiz.addWidget(self.guardar)

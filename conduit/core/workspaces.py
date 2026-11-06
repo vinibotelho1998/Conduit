@@ -33,6 +33,13 @@ def _raiz_de_dados() -> Path:
         return Path(definido)
 
     nova = Path.home() / "Conduit"
+    if os.name == "posix" and not nova.exists():
+        for nome in ("Dbx-Wire", "DBX-MAN"):
+            antiga = Path.home() / nome
+            if antiga.is_dir():
+                return antiga
+        data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+        return data / "conduit"
     if not nova.exists():
         for nome in ("Dbx-Wire", "DBX-MAN"):
             antiga = Path.home() / nome
@@ -78,7 +85,8 @@ def _now() -> str:
 
 
 def ensure_root() -> None:
-    WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
+    ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    WORKSPACES_DIR.mkdir(mode=0o700, exist_ok=True)
     (ROOT / ".conduit").mkdir(exist_ok=True)
     if not REGISTRY.exists():
         _write_registry({"schemaVersion": 1, "active": None, "workspaces": []})

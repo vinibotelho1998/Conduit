@@ -58,6 +58,7 @@ def casa_limpa(nome: str) -> Path:
     _CASAS.append(casa)
     destino = Path(casa.name)
     os.environ["CONDUIT_HOME"] = str(destino)
+    os.environ["XDG_CONFIG_HOME"] = str(destino / "config")
     return destino
 
 

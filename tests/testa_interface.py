@@ -11,11 +11,14 @@ from __future__ import annotations
 import colorsys
 import inspect
 import json
+import os
 import sys
 import tempfile
 import threading
 import time
+from contextlib import nullcontext
 from pathlib import Path
+from unittest.mock import patch
 
 from comum import Placar, casa_limpa, sem_tela  # noqa: E402
 
@@ -442,7 +445,7 @@ def main() -> int:
         )
 
     from conduit.core import engine, importer, scopes, storage, vars as resolvedor
-    from conduit.core.vault import Vault
+    from conduit.core.vault import PROVIDER, Vault
 
     p.secao("arquivo ilegivel no workspace nao some")
     solto = Path(tempfile.mkdtemp(prefix="conduit-storage-"))
@@ -576,7 +579,8 @@ def main() -> int:
               len(guardadas) == 32 and not falhas_threads,
               f"{len(guardadas)} de 32, {falhas_threads[:2]}")
 
-    lixo = '{"schemaVersion": 1, "provider": "dpapi", "wrappedKey": "AAAA", "nonce": "AAAA", "ciphertext": "AAAA"}'
+    lixo = json.dumps({"schemaVersion": 1, "provider": PROVIDER, "wrappedKey": "AAAA",
+                       "nonce": "AAAA", "ciphertext": "AAAA"})
     (raiz_cofre / ".secrets" / "vault.dbx").write_text(lixo, encoding="utf-8")
     quebrado = Vault(raiz_cofre)
     p.confere("cofre que nao abre avisa", bool(quebrado.erro), str(quebrado.erro))
@@ -800,8 +804,13 @@ def main() -> int:
     alvo_ws = ws.create_workspace("Para apagar no teste")
     preso = History(alvo_ws["path"])
     preso.stats()  # o indice fica aberto, como fica com o workspace na tela
+    # O POSIX permite rename mesmo com o SQLite aberto. Simule uma recusa
+    # realista de permissão para verificar o mesmo caminho de recuperação.
+    falha = (nullcontext() if os.name == "nt" else
+             patch.object(Path, "rename", side_effect=PermissionError("acesso negado")))
     try:
-        ws.delete_workspace(alvo_ws["id"], apagar_arquivos=True)
+        with falha:
+            ws.delete_workspace(alvo_ws["id"], apagar_arquivos=True)
         p.confere("pasta presa nao e movida pela metade", False, "moveu com arquivo aberto")
     except OSError:
         p.confere("pasta presa nao e movida pela metade", Path(alvo_ws["path"], "collections").is_dir())

@@ -16,6 +16,9 @@ concurrency:
 jobs:
   build:
     if: github.ref == 'refs/heads/main'
+    outputs:
+      release_tag: v${{ steps.versao.outputs.numero }}
+      release_commit: ${{ steps.commit.outputs.sha }}
     runs-on: windows-latest
     timeout-minutes: 40
     permissions:
@@ -24,7 +27,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -75,6 +78,15 @@ jobs:
           $hash = (Get-FileHash -LiteralPath "dist/Conduit-Setup.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  Conduit-Setup.exe" | Set-Content -LiteralPath "dist/SHA256SUMS.txt" -Encoding ascii
 
+      - name: Guardar instalador verificado
+        uses: actions/upload-artifact@v4
+        with:
+          name: Conduit-Windows
+          path: |
+            dist/Conduit-Setup.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
       - name: Registrar versao compilada
         id: commit
         run: |
@@ -89,21 +101,50 @@ jobs:
           $commit = git rev-parse HEAD
           "sha=$commit" >> $env:GITHUB_OUTPUT
 
-      - name: Publicar release versionada
+  linux:
+    needs: build
+    permissions:
+      contents: write
+    uses: ./.github/workflows/linux.yml
+    with:
+      release_tag: ${{ needs.build.outputs.release_tag }}
+      release_commit: ${{ needs.build.outputs.release_commit }}
+
+  publish:
+    needs: [build, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-assets-${{ needs.build.outputs.release_tag }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Conduit-Windows
+          path: windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: Conduit-Linux
+          path: linux
+      - name: Conferir e publicar os pacotes do mesmo commit
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ steps.versao.outputs.numero }}
-          RELEASE_COMMIT: ${{ steps.commit.outputs.sha }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.release_commit }}
         run: |
-          $tag = "v$env:RELEASE_VERSION"
-          @"
-          Instalador do Conduit v$env:RELEASE_VERSION.
-
-          Gerado do commit $env:RELEASE_COMMIT, depois da analise estatica e dos testes.
-          O arquivo SHA256SUMS.txt permite conferir a integridade do instalador.
-          "@ | Set-Content -LiteralPath release-notes.txt -Encoding utf8
-          # Cria com todos os arquivos antes de publicar. A release anterior continua disponivel.
-          gh release create $tag "dist/Conduit-Setup.exe" "dist/SHA256SUMS.txt" --draft --target $env:RELEASE_COMMIT --title "Conduit v$env:RELEASE_VERSION" --notes-file release-notes.txt
-          if ($LASTEXITCODE -ne 0) { throw "Falha ao criar a release" }
-          gh release edit $tag --draft=false --latest
-          if ($LASTEXITCODE -ne 0) { throw "A release ficou em rascunho; confira os arquivos antes de publicar" }
+          (cd windows && sha256sum -c SHA256SUMS.txt)
+          (cd linux && sha256sum -c *.sha256)
+          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > release.json; then
+            if ! jq -e '.isDraft' release.json >/dev/null; then
+              echo "A release $RELEASE_TAG já foi publicada." >&2
+              exit 1
+            fi
+            test "$(jq -r '.targetCommitish' release.json)" = "$RELEASE_COMMIT"
+          else
+            gh release create "$RELEASE_TAG" --draft --target "$RELEASE_COMMIT" \
+              --title "Conduit $RELEASE_TAG" --notes "Instalador Windows e pacote Linux x86-64 com SHA-256."
+          fi
+          gh release upload "$RELEASE_TAG" windows/* linux/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

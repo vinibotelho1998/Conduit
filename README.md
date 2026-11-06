@@ -2,7 +2,7 @@
 
 [![Build](https://github.com/vinibotelho1998/Conduit/actions/workflows/release.yml/badge.svg)](https://github.com/vinibotelho1998/Conduit/actions/workflows/release.yml)
 ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
-![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%2010%2F11-0078D6)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Cliente de API de mesa, com navegador SFTP embutido, feito do zero em Python com
@@ -26,10 +26,26 @@ da resposta e atalhos de teclado ajudam a trabalhar sem interromper o fluxo.
 
 ## Instalação
 
+### Linux
+
+A release Linux x86-64 contém `Conduit-VERSAO-linux-x86_64.tar.gz` e seu arquivo
+`.sha256`. No diretório dos downloads, confira com `sha256sum -c *.tar.gz.sha256`,
+extraia com `tar -xzf Conduit-VERSAO-linux-x86_64.tar.gz` e abra `./Conduit/Conduit`.
+O pacote usa glibc e as bibliotecas gráficas da distribuição. O build de referência
+usa Ubuntu 24.04. Para outras arquiteturas, use o código-fonte.
+
+Na pasta do projeto, execute `./Conduit.sh`.
+Em outra máquina, use Python 3.13 ou 3.14 com suporte a venv e pip, ou com uv.
+Na primeira abertura o lançador instala as versões de `requirements.txt`.
+Para conferir a versão, execute `./Conduit.sh --version`. As suítes rodam com
+`.venv/bin/python tests/rodar.py`.
+
+### Windows
+
 Baixe o **Conduit-Setup.exe** da [última release](https://github.com/vinibotelho1998/Conduit/releases/latest),
 execute e pronto. Não precisa de Python nem do repositório.
 
-## Rodar a partir do código-fonte
+## Rodar a partir do código-fonte no Windows
 
 Precisa de Python 3.13 ou mais novo.
 
@@ -39,7 +55,7 @@ python -m venv .venv
 .venv\Scripts\python -m conduit
 ```
 
-## Testes
+## Testes no Windows
 
 ```
 .venv\Scripts\python tests\rodar.py
@@ -71,6 +87,18 @@ Ao compilar manualmente, sua versão é lida do executável. Pull requests são 
 no Windows com Python 3.13 e 3.14. O fluxo de release compila e testa antes de registrar
 a versão, mantém as releases anteriores e publica um arquivo `SHA256SUMS.txt` junto ao
 instalador.
+
+## Build e publicação no Linux
+
+Na venv do projeto, instale `requirements-dev.txt`, rode `python tests/rodar.py` e
+`python -m PyInstaller packaging/Conduit.spec --noconfirm`. O executável e as
+bibliotecas ficam juntos em `dist/Conduit/`.
+
+O workflow **Conduit Linux** testa HTTP, SFTP, cofre e interface em Ubuntu a cada
+pull request e push no main, compila o pacote e guarda o tarball e o SHA-256 como
+artefatos. Uma tag `vX.Y.Z` precisa corresponder a `conduit.__version__`; seu build
+publica esses arquivos na release da tag. A release automática de main espera pelos dois builds do
+mesmo commit e confere os checksums antes de publicar o instalador Windows e o pacote Linux juntos.
 
 ## Atalhos úteis
 
@@ -113,7 +141,7 @@ instalador.
 
 ## Onde ficam os dados
 
-Fora do repositorio, em `%USERPROFILE%\Conduit`, um diretorio por workspace. Cada
+No Linux os dados ficam em `$XDG_DATA_HOME/conduit` (padrão `~/.local/share/conduit`). A pasta anterior `~/Conduit` continua sendo usada quando existe. Para escolher outra pasta, defina `CONDUIT_HOME`. No Windows ficam em `%USERPROFILE%\Conduit`, um diretorio por workspace. Cada
 request e um arquivo YAML, entao o diff do git mostra a mudanca de verdade em vez de uma
 linha gigante.
 
@@ -125,7 +153,12 @@ nome de variavel, endpoint, header e corpo.
 
 Valor marcado como secreto nunca vai pro arquivo versionado. Ele fica em
 `.secrets/vault.dbx`, cifrado em AES-256-GCM, com a chave protegida pela DPAPI do
-Windows, entao so a sua conta de usuario nesta maquina abre. A senha do certificado
+Windows. No Linux a chave de proteção fica em `$XDG_CONFIG_HOME/conduit/vault.key`
+(padrão `~/.config/conduit/vault.key`), acessível somente ao usuário (modo 0600).
+Guarde uma cópia privada dessa chave junto ao backup seguro dos seus dados.
+Para trazer workspaces do Windows, copie as coleções e ambientes e preencha as
+credenciais novamente em um workspace Linux. A DPAPI exige a conta Windows de origem.
+A senha do certificado
 cliente, o token do OAuth2 e a credencial de cada servidor SFTP moram no mesmo lugar.
 
 O mesmo cuidado vale pra tudo que sai do app: historico, exemplo salvo, codigo gerado e

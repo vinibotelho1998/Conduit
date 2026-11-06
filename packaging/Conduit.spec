@@ -19,8 +19,9 @@ VERSAO_TEXTO = "%d.%d.%d" % VERSAO[:3]
 # Bloco de versao do Windows. Sem ele o .exe aparece sem Produto, sem Versao e sem
 # empresa em Propriedades, Detalhes, e o SmartScreen trata isso como sinal ruim.
 VERSION_FILE = os.path.join(SPECPATH, "version_info.txt")
-with open(VERSION_FILE, "w", encoding="utf-8") as saida:
-    saida.write(f"""VSVersionInfo(
+if os.name == "nt":
+    with open(VERSION_FILE, "w", encoding="utf-8") as saida:
+        saida.write(f"""VSVersionInfo(
   ffi=FixedFileInfo(
     filevers={VERSAO}, prodvers={VERSAO},
     mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)
@@ -117,8 +118,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.join(ROOT, "assets", "conduit.ico"),
-    version=VERSION_FILE,
+    **({"icon": os.path.join(ROOT, "assets", "conduit.ico"), "version": VERSION_FILE}
+       if os.name == "nt" else {}),
 )
 coll = COLLECT(
     exe,
