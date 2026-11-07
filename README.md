@@ -5,6 +5,8 @@
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%2010%2F11-0078D6)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+[Baixar o binário Linux x86-64](https://github.com/vinibotelho1998/Conduit/releases/latest) · [Baixar o instalador Windows](https://github.com/vinibotelho1998/Conduit/releases/latest/download/Conduit-Setup.exe)
+
 Cliente de API de mesa, com navegador SFTP embutido, feito do zero em Python com
 PySide6. Nada sai da maquina sem voce mandar: nao existe conta, nao existe nuvem e nao
 existe telemetria.
@@ -28,13 +30,12 @@ da resposta e atalhos de teclado ajudam a trabalhar sem interromper o fluxo.
 
 ### Linux
 
-A release Linux x86-64 contém `Conduit-VERSAO-linux-x86_64.tar.gz` e seu arquivo
-`.sha256`. No diretório dos downloads, confira com `sha256sum -c *.tar.gz.sha256`,
-extraia com `tar -xzf Conduit-VERSAO-linux-x86_64.tar.gz` e abra `./Conduit/Conduit`.
-O pacote usa glibc e as bibliotecas gráficas da distribuição. O build de referência
-usa Ubuntu 24.04. Para outras arquiteturas, use o código-fonte.
+Na [última release](https://github.com/vinibotelho1998/Conduit/releases/latest), baixe
+**Conduit-VERSAO-linux-x86_64.tar.gz** e o arquivo **.sha256** correspondente.
+Confira o checksum, extraia o pacote e abra `./Conduit/Conduit`.
+O binário inclui Python e as dependências do aplicativo.
 
-Na pasta do projeto, execute `./Conduit.sh`.
+Para executar a partir do código-fonte, use `./Conduit.sh` na pasta do projeto.
 Em outra máquina, use Python 3.13 ou 3.14 com suporte a venv e pip, ou com uv.
 Na primeira abertura o lançador instala as versões de `requirements.txt`.
 Para conferir a versão, execute `./Conduit.sh --version`. As suítes rodam com
